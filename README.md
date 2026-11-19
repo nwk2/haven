@@ -12,7 +12,8 @@ and is not rebuilt per batch.
 
 ## Status
 
-**Batch 0 — scaffold + prove the deploy loop.** See `STATUS.md` for the live
+**Batch 0 — scaffold + prove the deploy loop: DONE.** **Batch 1 — shell,
+Editorial tokens, home screen: in progress.** See `STATUS.md` for the live
 state. Each batch gets its own go-ahead before it is pushed; a push needs
 Wai's tap, and nothing pushes while he is away.
 
@@ -29,8 +30,17 @@ modules/kitchen/        Module 1: Kitchen. Client routes, server routes and
   client/               migrations live together in the module's folder.
   server/
   migrations/           Kitchen migrations land here in Batch 3.
-shared/                 Shared tokens and components (Batch 1).
-scripts/build.mjs       Assembles dist/ from shell/public + module clients.
+shared/                 Shared tokens and components (Batch 1):
+                        tokens.css, components.css, components.js
+                        (sheet + confirm prompt), shell-logic.js
+                        (pure, Node-tested helpers: theme, greeting,
+                        tiles, widgets).
+scripts/build.mjs       Assembles dist/ from shell/public + shared/* +
+                        every modules/*/client chunk (generic — adding a
+                        module needs no build change).
+scripts/smoke-test.mjs  Node tests for the pure shell logic; with
+                        --modules-url also checks a running server's
+                        registry + chunks.
 wrangler.toml           One Worker (haven), one D1 (haven), assets in dist/.
 ```
 
@@ -44,12 +54,20 @@ Worker only on load, isolation or deploy-risk grounds.
 npm install
 npm run typecheck
 npm run build        # assembles dist/
+npm run test         # Node smoke tests for the pure shell logic
+```
+
+Local dev needs the shell migrations in the local D1 first (wrangler dev
+does not apply them on its own):
+
+```text
+npx wrangler d1 migrations apply haven --local
 npm run dev          # wrangler dev --local (local D1, no remote state)
 ```
 
 Then open http://localhost:8787 — `/api/health` returns
-`{"ok":true,"service":"haven","version":"0.1.0"}` and the Kitchen tile
-lazy-loads `/kitchen/chunk.js` on open.
+`{"ok":true,"service":"haven","version":"0.1.2"}` and the home screen
+renders its tiles from `/api/modules`.
 
 ## Deploy loop (Don't Ngiao precedent)
 
@@ -74,16 +92,13 @@ Per-module migrations are applied the same way with that module's
 
 ## Dashboard steps only Wai can do
 
-1. **Create the D1 database** (Cloudflare dashboard → Workers & Pages → D1 →
-   Create database, name `haven`). Then replace the placeholder
-   `database_id` in `wrangler.toml` with the real id. Needed before the
-   first deploy can succeed and before the Batch 0 migration can be applied.
-2. **Connect the repo to Workers Builds** (Cloudflare dashboard → Workers &
-   Pages → Create → Workers → connect GitHub repo `nwk2/haven`). Build
-   command: `npm ci && npm run build`. Deploy command: `npx wrangler deploy`.
-   Needed before any push deploys.
+1. **Create the D1 database** — done 2026-11-20 (`haven`,
+   `6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15`).
+2. **Connect the repo to Workers Builds** — done 2026-11-20 (build
+   `npm ci && npm run build`, deploy `npx wrangler deploy`).
 3. **Google OAuth client + consent screen** — before Batch 2 (create during
-   Batches 0–1; review can take time).
+   Batches 0–1; review can take time). Client created 2026-11-20; the
+   secret goes in as a Worker secret (`GOOGLE_CLIENT_SECRET`) in Batch 2.
 4. **R2 activation (billing profile / card on file)** — before Batch 6.
 
 ## Rules carried across batches

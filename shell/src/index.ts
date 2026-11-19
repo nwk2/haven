@@ -1,4 +1,4 @@
-// Haven shell Worker — Batch 0 scaffold.
+// Haven shell Worker — Batch 1 shell UI.
 //
 // Serves the SPA (static assets via the ASSETS binding) and the /api/*
 // routes. Module API routes are dispatched from the modules' server route
@@ -9,7 +9,7 @@
 // Batch 2; the shell tables already exist from migration 0001.
 import { kitchenApiRoutes } from "../../modules/kitchen/server/routes.js";
 
-const VERSION = "0.1.1"; // Batch 0 — deploy-loop proof push
+const VERSION = "0.1.2"; // Batch 1 — shell, Editorial tokens, home screen
 
 export interface Env {
   ASSETS: Fetcher;
@@ -30,6 +30,20 @@ export default {
 
     if (url.pathname === "/api/health") {
       return Response.json({ ok: true, service: "haven", version: VERSION });
+    }
+
+    if (url.pathname === "/api/modules" && request.method === "GET") {
+      // Shell registry (spec §8): the home screen and router render from
+      // this table. Batch 1.
+      try {
+        const { results } = await env.DB.prepare(
+          "SELECT module_id, name, icon, route_prefix, widget_priority FROM modules WHERE enabled = 1 ORDER BY rowid",
+        ).all();
+        return Response.json({ ok: true, modules: results });
+      } catch (err) {
+        console.error("modules registry read failed", err);
+        return Response.json({ ok: false, error: "modules_unavailable" }, { status: 500 });
+      }
     }
 
     if (url.pathname.startsWith("/api/")) {
