@@ -98,6 +98,30 @@
 .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--ink-muted); }
 .empty-state h2 { color: var(--ink); }
 
+/* --- Forms, household setup + panel (Batch 2) --- */
+.header-actions { display: flex; gap: 0.5rem; align-items: center; }
+.text-button {
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--ink-muted); font: inherit; font-size: 0.9rem; padding: 0.4rem 0.5rem;
+}
+.field {
+  width: 100%; max-width: 22rem; padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border); border-radius: 0.6rem;
+  background: var(--card); color: var(--ink); font: inherit;
+}
+.error { color: #b3261e; }
+[data-theme="dark"] .error { color: #f2a49b; }
+.muted { color: var(--ink-muted); font-size: 0.9rem; }
+.setup-card {
+  text-align: left; max-width: 26rem; margin: 1rem auto; padding: 1rem 1.25rem;
+  background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem;
+}
+.setup-card h3 { font-family: var(--font-serif); margin: 0 0 0.25rem; }
+.household-panel { margin-top: 0.25rem; }
+.household-panel .list-row { justify-content: space-between; }
+.invite-row { display: flex; gap: 0.5rem; align-items: center; }
+.invite-row .field { flex: 1; min-width: 0; font-size: 0.85rem; }
+
 /* --- Sheet + confirm prompt --- */
 .sheet-scrim {
   position: fixed; inset: 0; z-index: 40;

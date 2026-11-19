@@ -31,6 +31,24 @@ export function formatHomeDate(date) {
   return `${WEEKDAYS[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
+// Google sign-in URL (Batch 2): authorization-code flow. The client ID is
+// public by design; the redirect URI is the app root — it must match one of
+// the URIs registered in Google Cloud Console exactly, and the Worker uses
+// the same value when it exchanges the code. `state` is a one-time CSRF
+// nonce the caller stores (localStorage, so it survives the round-trip
+// even if iOS relaunches the PWA on the way back from Google).
+export function googleAuthUrl(clientId, redirectUri, state) {
+  const p = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+    prompt: "select_account",
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p.toString()}`;
+}
+
 // Module chunk URL, derived from the registry route prefix (spec §3).
 export function chunkUrl(routePrefix) {
   const prefix = routePrefix.endsWith("/") ? routePrefix : routePrefix + "/";

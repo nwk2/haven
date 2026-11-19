@@ -1,6 +1,9 @@
-// Haven shell app — Batch 1. Registry-driven home screen, Editorial themes,
+// Haven shell app — Batch 2. Registry-driven home screen, Editorial themes,
 // shell chrome (header Home control + bottom navigation). No framework; the
 // shell owns the router, modules own everything below their prefix.
+// Batch 2 adds Google-only sign-in (auth-code flow) and the household
+// setup/roster screens. One session, issued once after Google sign-in, is
+// accepted by every module route; modules run no auth of their own.
 //
 // Module client-chunk contract (spec §3): each chunk exports
 //   description — one-line job description for the tile
@@ -18,11 +21,24 @@ import {
   collectTiles,
   iconSVG,
   escapeHTML,
+  googleAuthUrl,
 } from "/shell-logic.js";
+import { confirmPrompt } from "/components.js";
+
+// Google sign-in (Batch 2): the client ID is public by design (it is in
+// the auth URL); only the secret is sensitive, and it lives only as a
+// Worker secret. The redirect URI is the app root — it must match one of
+// the URIs registered in Google Cloud Console exactly.
+const GOOGLE_CLIENT_ID =
+  "710021216622-hp6scvlvmm2q05adlrd5sijm2qltsanh.apps.googleusercontent.com";
+const SESSION_KEY = "haven-session"; // the raw session token (only its hash is stored server-side)
+const GOOGLE_STATE_KEY = "haven-google-state"; // one-time CSRF nonce for the Google round-trip
+const INVITE_KEY = "haven-invite"; // an invite link opened before sign-in, kept across the round-trip
 
 const app = document.getElementById("app");
 const bottomNav = document.getElementById("bottomnav");
 const themeToggle = document.getElementById("theme-toggle");
+const signOutButton = document.getElementById("sign-out");
 
 let modulesCache = null; // registry, fetched once from /api/modules
 
@@ -62,17 +78,252 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 });
 applyTheme(currentTheme());
 
+// --- Session (Batch 2) ---
+function getToken() {
+  try {
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+function setToken(token) {
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+function storedInvite() {
+  try {
+    return localStorage.getItem(INVITE_KEY);
+  } catch {
+    return null;
+  }
+}
+function clearInvite() {
+  try {
+    localStorage.removeItem(INVITE_KEY);
+  } catch {}
+}
+function showSignOut(on) {
+  signOutButton.hidden = !on;
+}
+signOutButton.addEventListener("click", async () => {
+  await api("/api/auth/logout", "POST");
+  setToken(null);
+  modulesCache = null;
+  void route();
+});
+
+// api(): same-origin JSON call with the session token when one exists.
+// A 401 means the session ended (or was revoked) — the caller re-routes
+// to the sign-in screen.
+async function api(path, method = "GET", body = null) {
+  const headers = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : null,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
+}
+
 document.getElementById("home-control").addEventListener("click", () => {
   window.history.pushState(null, "", "/");
   void route();
 });
 
+// --- Sign-in screen (Batch 2) ---
+function renderSignIn(notice) {
+  showSignOut(false);
+  bottomNav.innerHTML = "";
+  app.innerHTML = `<div class="empty-state"><h2>Welcome to Haven</h2>`
+    + `<p>One household app, one login. Sign in with Google to open your household.</p>`
+    + (notice ? `<p class="error">${escapeHTML(notice)}</p>` : "")
+    + `<p><button class="btn btn-primary" id="google-signin" type="button">Sign in with Google</button></p>`
+    + `<p>Every household member needs a Google account. No password is stored.</p></div>`;
+  document.getElementById("google-signin").addEventListener("click", () => {
+    const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      localStorage.setItem(GOOGLE_STATE_KEY, state);
+    } catch {}
+    window.location.href = googleAuthUrl(
+      GOOGLE_CLIENT_ID,
+      window.location.origin + "/",
+      state,
+    );
+  });
+}
+
+// Google redirected back with ?code=...&state=... — verify the state nonce,
+// exchange the code with the Worker, store the session token. Returns true
+// when a session was established.
+async function handleGoogleCallback(code, state) {
+  history.replaceState(null, "", window.location.pathname);
+  let stored = null;
+  try {
+    stored = localStorage.getItem(GOOGLE_STATE_KEY);
+    localStorage.removeItem(GOOGLE_STATE_KEY);
+  } catch {}
+  if (!state || state !== stored) {
+    renderSignIn("Sign-in didn’t complete — please try again.");
+    return false;
+  }
+  const { res, data } = await api("/api/auth/google", "POST", {
+    code,
+    redirect_uri: window.location.origin + "/",
+  });
+  if (!res.ok || !data.ok || !data.token) {
+    renderSignIn("Google sign-in failed — please try again.");
+    return false;
+  }
+  setToken(data.token);
+  return true;
+}
+
+// --- Household setup screen (Batch 2) ---
+// A signed-in user with no household yet: create one (they become its
+// creator) or join one with an invite link. One household per user in v1.
+function renderHouseholdSetup(notice) {
+  showSignOut(true);
+  bottomNav.innerHTML = "";
+  app.innerHTML = `<div class="empty-state"><h2>Set up your household</h2>`
+    + `<p>Haven is one household: its members, recipes, plans and shopping.</p>`
+    + (notice ? `<p class="error">${escapeHTML(notice)}</p>` : "")
+    + `<div class="setup-card"><h3>Create a household</h3>`
+    + `<p>Start one — you become its creator and can invite the rest of the household.</p>`
+    + `<p><input class="field" id="household-name" type="text" placeholder="Household name" autocomplete="off" maxlength="100"></p>`
+    + `<p><button class="btn btn-primary" id="create-household" type="button">Create household</button></p></div>`
+    + `<div class="setup-card"><h3>Join a household</h3>`
+    + `<p>Someone shared an invite link with you — paste its code here.</p>`
+    + `<p><input class="field" id="invite-code" type="text" placeholder="Invite code" autocomplete="off"></p>`
+    + `<p><button class="btn btn-primary" id="join-household" type="button">Join household</button></p></div></div>`;
+  document.getElementById("create-household").addEventListener("click", async () => {
+    const name = document.getElementById("household-name").value.trim();
+    if (!name) {
+      renderHouseholdSetup("Give the household a name first.");
+      return;
+    }
+    const { res, data } = await api("/api/household", "POST", { name });
+    if (!res.ok || !data.ok) {
+      renderHouseholdSetup("Couldn’t create the household — please try again.");
+      return;
+    }
+    void route();
+  });
+  document.getElementById("join-household").addEventListener("click", async () => {
+    const invite = document.getElementById("invite-code").value.trim();
+    if (!invite) {
+      renderHouseholdSetup("Paste the invite code first.");
+      return;
+    }
+    const joined = await tryJoin(invite);
+    if (joined) {
+      clearInvite();
+      void route();
+    } else {
+      renderHouseholdSetup("That invite link isn’t valid — check the code and try again.");
+    }
+  });
+}
+
+// Join with an invite code. Returns true on success, false when the invite
+// is not valid (or the user is already in a household).
+async function tryJoin(invite) {
+  const { res, data } = await api("/api/household/join", "POST", { invite });
+  return res.ok && data.ok;
+}
+
+// --- Household panel on the home screen (Batch 2) ---
+async function loadHousehold() {
+  const { res, data } = await api("/api/household");
+  if (!res.ok || !data.ok) return null;
+  return data;
+}
+
+function householdPanelHTML(hh, me) {
+  const isCreator = hh.household.creator_id === me.id;
+  const members = hh.members
+    .map((m) => `<div class="list-row"><span>${escapeHTML(m.name)}</span>`
+      + `<span class="muted">${escapeHTML(m.role)}</span>`
+      + (isCreator && m.id !== me.id
+        ? `<button class="btn btn-ghost" type="button" data-remove-member="${escapeHTML(m.id)}">Remove</button>`
+        : "")
+      + `</div>`)
+    .join("");
+  return `<h2 class="section-head">Household</h2>`
+    + `<section class="household-panel"><p><strong>${escapeHTML(hh.household.name)}</strong></p>`
+    + `<div class="list">${members}</div>`
+    + `<p class="invite-row"><input class="field" id="invite-link" type="text" readonly value="${escapeHTML(hh.invite_link || "")}">`
+    + `<button class="btn btn-ghost" id="copy-invite" type="button">Copy invite link</button></p>`
+    + (isCreator
+      ? `<p><button class="btn btn-ghost" id="revoke-invite" type="button">Revoke invite link</button></p>`
+      : `<p class="muted">Only the household creator can revoke the invite link.</p>`)
+    + `<p><button class="btn btn-ghost" id="leave-household" type="button">Leave household</button></p></section>`;
+}
+
+function wireHouseholdPanel(hh, me) {
+  const copyBtn = document.getElementById("copy-invite");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      const input = document.getElementById("invite-link");
+      try {
+        await navigator.clipboard.writeText(input.value);
+        copyBtn.textContent = "Copied";
+      } catch {
+        input.select();
+        copyBtn.textContent = "Select and copy";
+      }
+    });
+  }
+  const revokeBtn = document.getElementById("revoke-invite");
+  if (revokeBtn) {
+    revokeBtn.addEventListener("click", async () => {
+      const { res, data } = await api("/api/household/invite/revoke", "POST");
+      if (res.ok && data.ok) void route();
+    });
+  }
+  const leaveBtn = document.getElementById("leave-household");
+  if (leaveBtn) {
+    leaveBtn.addEventListener("click", async () => {
+      const yes = await confirmPrompt({
+        title: "Leave household?",
+        message: `Leaving removes you from ${hh.household.name}. The household’s plans and shopping stay with the remaining members.`,
+        confirmLabel: "Leave",
+      });
+      if (!yes) return;
+      await api("/api/household/leave", "POST");
+      modulesCache = null;
+      void route();
+    });
+  }
+  document.querySelectorAll("[data-remove-member]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const userId = btn.getAttribute("data-remove-member");
+      const { res, data } = await api("/api/household/members/remove", "POST", { user_id: userId });
+      if (res.ok && data.ok) void route();
+    });
+  });
+}
+
 async function loadModules() {
   if (modulesCache) return modulesCache;
-  const res = await fetch("/api/modules");
-  if (!res.ok) throw new Error("modules request failed: " + res.status);
-  const data = await res.json();
-  if (!data.ok || !Array.isArray(data.modules)) throw new Error("modules request failed");
+  const { res, data } = await api("/api/modules");
+  if (res.status === 401) {
+    const err = new Error("session ended");
+    err.status = 401;
+    throw err;
+  }
+  if (res.status === 403) {
+    const err = new Error("no household");
+    err.status = 403;
+    throw err;
+  }
+  if (!res.ok || !data.ok || !Array.isArray(data.modules)) {
+    throw new Error("modules request failed");
+  }
   modulesCache = data.modules;
   return modulesCache;
 }
@@ -97,7 +348,7 @@ function renderBottomNav(activeId) {
     .join("");
 }
 
-async function renderHome() {
+async function renderHome(me) {
   const now = new Date();
   let html = `<p class="greeting">${greetingFor(now)}</p>`
     + `<p class="home-date">${formatHomeDate(now)}</p>`;
@@ -111,8 +362,14 @@ async function renderHome() {
   const tiles = await collectTiles(modulesCache, loadChunk);
   html += `<h2 class="section-head">Modules</h2>`
     + `<section class="tile-grid">${tiles.join("")}</section>`;
+
+  // Household roster (Batch 2): members, invite link, leave.
+  const hh = await loadHousehold();
+  if (hh) html += householdPanelHTML(hh, me.user);
+
   app.innerHTML = html;
   renderBottomNav("home");
+  if (hh) wireHouseholdPanel(hh, me.user);
 }
 
 async function openModule(mod) {
@@ -132,10 +389,74 @@ async function openModule(mod) {
 }
 
 async function route() {
+  const params = new URLSearchParams(window.location.search);
+
+  // 1. Google redirected back (?code=...&state=...).
+  const code = params.get("code");
+  if (code) {
+    const signedIn = await handleGoogleCallback(code, params.get("state"));
+    if (!signedIn) return;
+  }
+
+  // 2. Invite link opened (?invite=...): keep it across sign-in, then join.
+  const invite = params.get("invite");
+  if (invite) {
+    try {
+      localStorage.setItem(INVITE_KEY, invite);
+    } catch {}
+    history.replaceState(null, "", window.location.pathname);
+  }
+
+  // 3. Sign-in gate: no session, no app.
+  if (!getToken()) {
+    renderSignIn();
+    return;
+  }
+
+  // 4. Who is this, and do they have a household?
+  const { res, data } = await api("/api/me");
+  if (res.status === 401 || !res.ok || !data.ok) {
+    setToken(null);
+    modulesCache = null;
+    renderSignIn("Your session ended — sign in again.");
+    return;
+  }
+  const me = data;
+  showSignOut(true);
+
+  if (!me.household) {
+    // An invite kept from before sign-in joins now.
+    const kept = storedInvite();
+    if (kept) {
+      if (await tryJoin(kept)) {
+        clearInvite();
+        void route();
+        return;
+      }
+      clearInvite();
+      renderHouseholdSetup("That invite link isn’t valid — check the code and try again.");
+      return;
+    }
+    renderHouseholdSetup();
+    return;
+  }
+  clearInvite();
+
+  // 5. Member: normal routing (home screen + modules).
   let modules;
   try {
     modules = await loadModules();
   } catch (err) {
+    if (err.status === 401) {
+      setToken(null);
+      modulesCache = null;
+      renderSignIn("Your session ended — sign in again.");
+      return;
+    }
+    if (err.status === 403) {
+      renderHouseholdSetup();
+      return;
+    }
     console.warn("registry unavailable", err);
     app.innerHTML = `<div class="empty-state"><h2>Couldn’t load Haven</h2>`
       + `<p>The module list didn’t load. Check your connection and try again.</p>`
@@ -156,7 +477,7 @@ async function route() {
     await openModule(mod);
     return;
   }
-  await renderHome();
+  await renderHome(me);
 }
 
 document.addEventListener("click", (event) => {

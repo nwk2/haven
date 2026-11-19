@@ -27,6 +27,7 @@ import {
   collectTiles,
   iconSVG,
   escapeHTML,
+  googleAuthUrl,
 } from "../shared/shell-logic.js";
 
 let failures = 0;
@@ -124,45 +125,71 @@ check("isolation: both tiles render", isoTiles.length, 2);
 checkContains("isolation: good tile description", isoTiles[0], "Good module.");
 checkContains("isolation: broken tile falls back", isoTiles[1], "Open the module");
 
+// Google sign-in URL (Batch 2): authorization-code flow, app root as the
+// redirect URI, one-time state nonce.
+const gUrl = googleAuthUrl(
+  "710021216622-xxx.apps.googleusercontent.com",
+  "https://haven.wk-io.workers.dev/",
+  "state-1",
+);
+checkContains("googleAuthUrl: host", gUrl, "https://accounts.google.com/o/oauth2/v2/auth?");
+checkContains("googleAuthUrl: client id", gUrl, "client_id=710021216622-xxx.apps.googleusercontent.com");
+checkContains("googleAuthUrl: redirect uri", gUrl, "redirect_uri=https%3A%2F%2Fhaven.wk-io.workers.dev%2F");
+checkContains("googleAuthUrl: code flow", gUrl, "response_type=code");
+checkContains("googleAuthUrl: scopes", gUrl, "scope=openid+email+profile");
+checkContains("googleAuthUrl: state", gUrl, "state=state-1");
+checkContains("googleAuthUrl: prompt", gUrl, "prompt=select_account");
+
 // --- Live registry data (optional) ---
 const urlArg = process.argv.indexOf("--modules-url");
 if (urlArg !== -1) {
   const base = process.argv[urlArg + 1].replace(/\/$/, "");
-  const res = await fetch(`${base}/api/modules`);
-  check("live: /api/modules is 200", res.status, 200);
-  const data = await res.json();
-  check("live: /api/modules ok", data.ok, true);
-  if (!Array.isArray(data.modules) || data.modules.length === 0) {
-    failures++;
-    console.error("FAIL live: registry returned no modules");
+  // Batch 2: /api/modules requires a session + household membership.
+  // With HAVEN_TOKEN set, the full live checks run; without one, the
+  // gate itself is the check — an unauthenticated call must be 401.
+  const token = process.env.HAVEN_TOKEN || null;
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${base}/api/modules`, { headers: authHeaders });
+  if (!token) {
+    check("live: /api/modules without a session is 401", res.status, 401);
+    const unauth = await fetch(`${base}/api/me`, { headers: authHeaders });
+    check("live: /api/me without a session is 401", unauth.status, 401);
   } else {
-    console.log(`ok live: registry has ${data.modules.length} module(s): ${data.modules.map((m) => m.module_id).join(", ")}`);
-    const tmp = await mkdtemp(join(tmpdir(), "haven-chunks-"));
-    try {
-      for (const mod of data.modules) {
-        const chunkRes = await fetch(`${base}${chunkUrl(mod.route_prefix)}`);
-        check(`live: chunk ${mod.module_id} is 200`, chunkRes.status, 200);
-        const file = join(tmp, `${mod.module_id}-chunk.mjs`);
-        await writeFile(file, await chunkRes.text());
-        const chunk = await import(pathToFileURL(file).href);
-        check(`live: chunk ${mod.module_id} exports a description`, typeof chunk.description, "string");
-        check(`live: chunk ${mod.module_id} exports mount`, typeof chunk.mount, "function");
-        check(`live: chunk ${mod.module_id} exports widget`, typeof chunk.widget, "function");
-        const w = await chunk.widget();
-        if (w === null) {
-          console.log(`ok live: widget ${mod.module_id} is empty (null) — hides`);
-        } else {
-          check(`live: widget ${mod.module_id} has a title`, typeof w.title, "string");
-          check(`live: widget ${mod.module_id} has a body`, typeof w.body, "string");
-          check(`live: widget ${mod.module_id} has an href`, typeof w.href, "string");
+    check("live: /api/modules is 200", res.status, 200);
+    const data = await res.json();
+    check("live: /api/modules ok", data.ok, true);
+    if (!Array.isArray(data.modules) || data.modules.length === 0) {
+      failures++;
+      console.error("FAIL live: registry returned no modules");
+    } else {
+      console.log(`ok live: registry has ${data.modules.length} module(s): ${data.modules.map((m) => m.module_id).join(", ")}`);
+      const tmp = await mkdtemp(join(tmpdir(), "haven-chunks-"));
+      try {
+        for (const mod of data.modules) {
+          const chunkRes = await fetch(`${base}${chunkUrl(mod.route_prefix)}`);
+          check(`live: chunk ${mod.module_id} is 200`, chunkRes.status, 200);
+          const file = join(tmp, `${mod.module_id}-chunk.mjs`);
+          await writeFile(file, await chunkRes.text());
+          const chunk = await import(pathToFileURL(file).href);
+          check(`live: chunk ${mod.module_id} exports a description`, typeof chunk.description, "string");
+          check(`live: chunk ${mod.module_id} exports mount`, typeof chunk.mount, "function");
+          check(`live: chunk ${mod.module_id} exports widget`, typeof chunk.widget, "function");
+          const w = await chunk.widget();
+          if (w === null) {
+            console.log(`ok live: widget ${mod.module_id} is empty (null) — hides`);
+          } else {
+            check(`live: widget ${mod.module_id} has a title`, typeof w.title, "string");
+            check(`live: widget ${mod.module_id} has a body`, typeof w.body, "string");
+            check(`live: widget ${mod.module_id} has an href`, typeof w.href, "string");
+          }
+          const html = tileHTML(mod, chunk.description);
+          checkContains(`live: tile ${mod.module_id} renders its name`, html, mod.name);
         }
-        const html = tileHTML(mod, chunk.description);
-        checkContains(`live: tile ${mod.module_id} renders its name`, html, mod.name);
+        const order = sortWidgets(data.modules).map((m) => m.module_id).join(",");
+        console.log(`ok live: widget feed order is [${order}]`);
+      } finally {
+        await rm(tmp, { recursive: true, force: true });
       }
-      const order = sortWidgets(data.modules).map((m) => m.module_id).join(",");
-      console.log(`ok live: widget feed order is [${order}]`);
-    } finally {
-      await rm(tmp, { recursive: true, force: true });
     }
   }
 }
