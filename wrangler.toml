@@ -23,13 +23,11 @@ run_worker_first = true
 
 # D1 — one database for the whole app (spec §11). Tables are prefixed per
 # module (cook_*, shop_*); shell tables are unprefixed.
-# TODO (Batch 0, before first deploy): create the database in the Cloudflare
-# dashboard (name: haven) and replace the placeholder id below with the real
-# database_id. A deploy with the placeholder id will fail.
+# Database created 2026-11-20 (Batch 0 follow-up): id below is the real one.
 [[d1_databases]]
 binding = "DB"
 database_name = "haven"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15"
 migrations_dir = "shell/migrations"
 
 # Observability: keep invocation logs enabled (Don't Ngiao lesson, Nov 2026).
