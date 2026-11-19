@@ -9,7 +9,7 @@
 // Batch 2; the shell tables already exist from migration 0001.
 import { kitchenApiRoutes } from "../../modules/kitchen/server/routes.js";
 
-const VERSION = "0.1.0"; // Batch 0
+const VERSION = "0.1.1"; // Batch 0 — deploy-loop proof push
 
 export interface Env {
   ASSETS: Fetcher;
