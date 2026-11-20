@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.6"; // Single-request shell boot — CSS + JS inlined into index.html at build time
+const VERSION = "0.1.7"; // Session + household cached in memory across navigations
 
 export interface Env {
   ASSETS: Fetcher;

@@ -42,6 +42,18 @@ const signOutButton = document.getElementById("sign-out");
 
 let modulesCache = null; // registry, fetched once from /api/modules
 
+// Session + household, cached in memory for the lifetime of the page
+// (same pattern as modulesCache): a fresh page load always refetches,
+// but in-app navigations reuse the cached values instead of paying a
+// round-trip per tab switch on a slow connection. Anything that can
+// change what they hold clears them first — see clearSessionCaches().
+let meCache = null; // /api/me response: { user, household }
+let householdCache = null; // /api/household response: { household, invite_link, members }
+function clearSessionCaches() {
+  meCache = null;
+  householdCache = null;
+}
+
 // --- Theme: stored choice wins, otherwise follow the system (spec §2). ---
 function systemPrefersDark() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -114,6 +126,7 @@ signOutButton.addEventListener("click", async () => {
     // Still sign out locally: the server session just stays until it expires.
   }
   setToken(null);
+  clearSessionCaches();
   modulesCache = null;
   void route();
 });
@@ -215,6 +228,10 @@ async function handleGoogleCallback(code, state) {
     return false;
   }
   setToken(data.token);
+  // A new session starts from fresh state: the caches may still hold the
+  // previous user's /api/me and /api/household responses. routeInner()
+  // refetches both on the way to the home screen.
+  clearSessionCaches();
   return true;
 }
 
@@ -246,6 +263,7 @@ function renderHouseholdSetup(notice) {
       renderHouseholdSetup("Couldn’t create the household — please try again.");
       return;
     }
+    clearSessionCaches(); // the cached /api/me still says "no household"
     void route();
   });
   document.getElementById("join-household").addEventListener("click", async () => {
@@ -257,6 +275,7 @@ function renderHouseholdSetup(notice) {
     const joined = await tryJoin(invite);
     if (joined) {
       clearInvite();
+      clearSessionCaches(); // the cached /api/me still says "no household"
       void route();
     } else {
       renderHouseholdSetup("That invite link isn’t valid — check the code and try again.");
@@ -273,8 +292,10 @@ async function tryJoin(invite) {
 
 // --- Household panel on the home screen (Batch 2) ---
 async function loadHousehold() {
+  if (householdCache) return householdCache;
   const { res, data } = await api("/api/household");
   if (!res.ok || !data.ok) return null;
+  householdCache = data;
   return data;
 }
 
@@ -317,7 +338,10 @@ function wireHouseholdPanel(hh, me) {
   if (revokeBtn) {
     revokeBtn.addEventListener("click", async () => {
       const { res, data } = await api("/api/household/invite/revoke", "POST");
-      if (res.ok && data.ok) void route();
+      if (res.ok && data.ok) {
+        clearSessionCaches(); // the cached household still has the old invite link
+        void route();
+      }
     });
   }
   const leaveBtn = document.getElementById("leave-household");
@@ -330,6 +354,7 @@ function wireHouseholdPanel(hh, me) {
       });
       if (!yes) return;
       await api("/api/household/leave", "POST");
+      clearSessionCaches(); // the cached /api/me still says "has household"
       modulesCache = null;
       void route();
     });
@@ -338,7 +363,10 @@ function wireHouseholdPanel(hh, me) {
     btn.addEventListener("click", async () => {
       const userId = btn.getAttribute("data-remove-member");
       const { res, data } = await api("/api/household/members/remove", "POST", { user_id: userId });
-      if (res.ok && data.ok) void route();
+      if (res.ok && data.ok) {
+        clearSessionCaches(); // the cached household still lists the removed member
+        void route();
+      }
     });
   });
 }
@@ -448,29 +476,40 @@ async function routeInner() {
     return;
   }
 
-  // 4. Who is this, and do they have a household?
-  // A failed session check (timeout, network) is not a signed-out user:
-  // show the sign-in screen with a specific message instead of a blank
-  // page — the sign-in button is the retry.
+  // 4. Who is this, and do they have a household? The session check runs
+  // once per page load and is cached in memory (meCache) — later
+  // navigations reuse it instead of paying a fresh /api/me round-trip
+  // per tab switch. A fresh page load starts with empty caches, so boot
+  // always refetches. A failed session check (timeout, network) is not a
+  // signed-out user: show the sign-in screen with a specific message
+  // instead of a blank page — the sign-in button is the retry.
   let res;
   let data;
-  try {
-    ({ res, data } = await api("/api/me"));
-  } catch (err) {
-    setToken(null);
-    modulesCache = null;
-    renderSignIn(
-      err.timedOut
-        ? "Haven didn’t respond in time — check your connection and try again."
-        : "Couldn’t reach Haven — check your connection and try again.",
-    );
-    return;
-  }
-  if (res.status === 401 || !res.ok || !data.ok) {
-    setToken(null);
-    modulesCache = null;
-    renderSignIn("Your session ended — sign in again.");
-    return;
+  if (meCache) {
+    res = { status: 200, ok: true };
+    data = meCache;
+  } else {
+    try {
+      ({ res, data } = await api("/api/me"));
+    } catch (err) {
+      setToken(null);
+      clearSessionCaches();
+      modulesCache = null;
+      renderSignIn(
+        err.timedOut
+          ? "Haven didn’t respond in time — check your connection and try again."
+          : "Couldn’t reach Haven — check your connection and try again.",
+      );
+      return;
+    }
+    if (res.status === 401 || !res.ok || !data.ok) {
+      setToken(null);
+      clearSessionCaches();
+      modulesCache = null;
+      renderSignIn("Your session ended — sign in again.");
+      return;
+    }
+    meCache = data;
   }
   const me = data;
   showSignOut(true);
@@ -481,6 +520,7 @@ async function routeInner() {
     if (kept) {
       if (await tryJoin(kept)) {
         clearInvite();
+        clearSessionCaches(); // the cached /api/me still says "no household"
         void route();
         return;
       }
@@ -500,6 +540,7 @@ async function routeInner() {
   } catch (err) {
     if (err.status === 401) {
       setToken(null);
+      clearSessionCaches();
       modulesCache = null;
       renderSignIn("Your session ended — sign in again.");
       return;
@@ -513,6 +554,7 @@ async function routeInner() {
       + `<p>The module list didn’t load. Check your connection and try again.</p>`
       + `<p><button class="btn btn-primary" id="retry-home" type="button">Try again</button></p></div>`;
     document.getElementById("retry-home").addEventListener("click", () => {
+      clearSessionCaches();
       modulesCache = null;
       void route();
     });

@@ -32,8 +32,12 @@ export function openSheet({ title, body, actions = [], onClose = null }) {
     btn.className = "btn " + (action.kind === "primary" ? "btn-primary" : "btn-ghost");
     btn.textContent = action.label;
     btn.addEventListener("click", () => {
-      close();
+      // The action runs before the sheet closes: close() fires onClose,
+      // and for confirmPrompt onClose settles false — if it ran first it
+      // would swallow the action's own settle (the confirm button would
+      // always resolve false and Leave would never happen).
       if (typeof action.onClick === "function") action.onClick();
+      close();
     });
     row.appendChild(btn);
     if (action.kind === "primary") btn.focus();
