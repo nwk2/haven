@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.9"; // D1 batch() on the hot paths
+const VERSION = "0.2.0"; // Kitchen core: Recipes, Plan, Today (Batch 3)
 
 export interface Env {
   ASSETS: Fetcher;

@@ -98,11 +98,34 @@ for (const entry of readdirSync(join(root, "shell", "public"))) {
   cpSync(join(root, "shell", "public", entry), join(dist, entry), { recursive: true });
 }
 
-// Every module's client chunk, lazy-loaded under its own path.
+// Every module's client chunk, lazy-loaded under its own path. chunk.js
+// is bundled with esbuild (not copied raw) so it can import the shared
+// helpers (/components.js, /shell-logic.js) through the same plugin the
+// shell bundle uses. The served chunk is self-contained — no external
+// imports — so it loads from any path and imports cleanly in Node (the
+// smoke test fetches and imports it). Other client files are copied
+// as-is. Adding a module still means adding its folder: this loop is
+// generic, no per-module edit here.
 for (const name of readdirSync(join(root, "modules"))) {
   const client = join(root, "modules", name, "client");
-  if (existsSync(client)) {
-    cpSync(client, join(dist, name), { recursive: true });
+  if (!existsSync(client)) continue;
+  mkdirSync(join(dist, name), { recursive: true });
+  for (const entry of readdirSync(client)) {
+    const src = join(client, entry);
+    if (entry === "chunk.js") {
+      const out = await build({
+        entryPoints: [src],
+        bundle: true,
+        format: "esm",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        plugins: [shellImports],
+      });
+      writeFileSync(join(dist, name, "chunk.js"), out.outputFiles[0].text);
+    } else {
+      cpSync(src, join(dist, name, entry), { recursive: true });
+    }
   }
 }
 

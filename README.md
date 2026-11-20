@@ -57,11 +57,12 @@ npm run build        # assembles dist/
 npm run test         # Node smoke tests for the pure shell logic
 ```
 
-Local dev needs the shell migrations in the local D1 first (wrangler dev
-does not apply them on its own):
+Local dev needs the shell and kitchen migrations in the local D1 first
+(wrangler dev does not apply them on its own):
 
 ```text
-npx wrangler d1 migrations apply haven --local
+npx wrangler d1 migrations apply haven-apac --local -y
+npx wrangler d1 execute haven-apac --local --file modules/kitchen/migrations/0001_kitchen.sql
 npm run dev          # wrangler dev --local (local D1, no remote state)
 ```
 
