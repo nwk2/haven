@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.8"; // Session + household cached in memory across navigations
+const VERSION = "0.1.9"; // D1 batch() on the hot paths
 
 export interface Env {
   ASSETS: Fetcher;
@@ -167,19 +167,22 @@ export default {
       }
 
       // GET /api/household — roster + invite link (any member may share
-      // the link; only the creator may revoke it, below).
+      // the link; only the creator may revoke it, below). The two reads
+      // are independent (both keyed by the household id, known from the
+      // auth context), so they run as one D1 batch round-trip.
       if (url.pathname === "/api/household" && request.method === "GET") {
         if (!ctx.household) return err("no_household", 403);
-        const row: any = await env.DB.prepare("SELECT invite_token FROM households WHERE id = ?")
-          .bind(ctx.household.id)
-          .first();
-        const { results } = await env.DB.prepare(
-          "SELECT u.id AS id, u.name AS name, u.email AS email, m.role AS role, m.joined_at AS joined_at " +
-            "FROM household_members m JOIN users u ON u.id = m.user_id " +
-            "WHERE m.household_id = ? ORDER BY m.joined_at",
-        )
-          .bind(ctx.household.id)
-          .all();
+        const [inviteRes, membersRes] = await env.DB.batch([
+          env.DB.prepare("SELECT invite_token FROM households WHERE id = ?")
+            .bind(ctx.household.id),
+          env.DB.prepare(
+            "SELECT u.id AS id, u.name AS name, u.email AS email, m.role AS role, m.joined_at AS joined_at " +
+              "FROM household_members m JOIN users u ON u.id = m.user_id " +
+              "WHERE m.household_id = ? ORDER BY m.joined_at",
+          ).bind(ctx.household.id),
+        ]);
+        const row: any = inviteRes.results[0];
+        const members = membersRes.results;
         return json({
           ok: true,
           household: {
@@ -188,7 +191,7 @@ export default {
             creator_id: ctx.household.creator_id,
           },
           invite_link: row ? inviteLink(url.origin, String(row.invite_token)) : null,
-          members: results,
+          members,
         });
       }
 
@@ -202,16 +205,19 @@ export default {
         const id = uid();
         const inviteToken = uid();
         const createdAt = nowIso();
-        await env.DB.prepare(
-          "INSERT INTO households (id, name, creator_id, invite_token, created_at) VALUES (?, ?, ?, ?, ?)",
-        )
-          .bind(id, name, ctx.user.id, inviteToken, createdAt)
-          .run();
-        await env.DB.prepare(
-          "INSERT INTO household_members (household_id, user_id, role, joined_at) VALUES (?, ?, 'creator', ?)",
-        )
-          .bind(id, ctx.user.id, createdAt)
-          .run();
+        // The two inserts are independent (both use ids generated above),
+        // so they run as one D1 batch round-trip. A batch is all-or-nothing
+        // under workerd — if the member insert failed, the household insert
+        // rolls back too — so this is strictly safer than the sequential
+        // version, which could leave an orphan household row.
+        await env.DB.batch([
+          env.DB.prepare(
+            "INSERT INTO households (id, name, creator_id, invite_token, created_at) VALUES (?, ?, ?, ?, ?)",
+          ).bind(id, name, ctx.user.id, inviteToken, createdAt),
+          env.DB.prepare(
+            "INSERT INTO household_members (household_id, user_id, role, joined_at) VALUES (?, ?, 'creator', ?)",
+          ).bind(id, ctx.user.id, createdAt),
+        ]);
         return json({
           ok: true,
           household: { id, name, role: "creator", creator_id: ctx.user.id },
@@ -272,21 +278,30 @@ export default {
           .all();
         if (results.length > 0 && ctx.household.role === "creator") {
           const nextId = String((results[0] as any).user_id);
-          await env.DB.prepare("UPDATE households SET creator_id = ? WHERE id = ?")
-            .bind(nextId, ctx.household.id)
-            .run();
-          await env.DB.prepare(
-            "UPDATE household_members SET role = 'creator' WHERE household_id = ? AND user_id = ?",
-          )
-            .bind(ctx.household.id, nextId)
-            .run();
+          // The two transfer writes are independent (same known ids), so
+          // they run as one batch round-trip; a batch is all-or-nothing,
+          // so a failure cannot leave the creator half-transferred.
+          await env.DB.batch([
+            env.DB.prepare("UPDATE households SET creator_id = ? WHERE id = ?")
+              .bind(nextId, ctx.household.id),
+            env.DB.prepare(
+              "UPDATE household_members SET role = 'creator' WHERE household_id = ? AND user_id = ?",
+            ).bind(ctx.household.id, nextId),
+          ]);
         }
-        await env.DB.prepare("DELETE FROM household_members WHERE household_id = ? AND user_id = ?")
-          .bind(ctx.household.id, ctx.user.id)
-          .run();
         if (results.length === 0) {
-          await env.DB.prepare("DELETE FROM households WHERE id = ?")
-            .bind(ctx.household.id)
+          // Last member leaving: the two deletes are independent (same
+          // known ids), so they run as one batch round-trip; all-or-nothing
+          // means a failure cannot leave an empty household behind.
+          await env.DB.batch([
+            env.DB.prepare("DELETE FROM household_members WHERE household_id = ? AND user_id = ?")
+              .bind(ctx.household.id, ctx.user.id),
+            env.DB.prepare("DELETE FROM households WHERE id = ?")
+              .bind(ctx.household.id),
+          ]);
+        } else {
+          await env.DB.prepare("DELETE FROM household_members WHERE household_id = ? AND user_id = ?")
+            .bind(ctx.household.id, ctx.user.id)
             .run();
         }
         return json({ ok: true });

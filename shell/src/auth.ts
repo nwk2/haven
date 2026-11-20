@@ -133,13 +133,23 @@ export async function authSession(req: Request, env: AuthEnv): Promise<AuthConte
   const token = bearerToken(req);
   if (!token) return null;
   const hash = await sha256Hex(token);
-  const row: any = await env.DB.prepare(
-    "SELECT s.expires_at AS expires_at, s.last_seen_at AS last_seen_at, " +
-      "u.id AS id, u.name AS name, u.email AS email, u.created_at AS created_at " +
-      "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?",
-  )
-    .bind(hash)
-    .first();
+  // The session lookup and the household lookup are one D1 round-trip:
+  // the household statement resolves its user through the session row
+  // itself (subquery on the token hash), so both statements are
+  // independent and batchable. The household result is only used when
+  // the session row exists and is unexpired, so a household row for a
+  // dead session can never leak through.
+  const [sessionRes, householdRes] = await env.DB.batch([
+    env.DB.prepare(
+      "SELECT s.expires_at AS expires_at, s.last_seen_at AS last_seen_at, " +
+        "u.id AS id, u.name AS name, u.email AS email, u.created_at AS created_at " +
+        "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?",
+    ).bind(hash),
+    env.DB.prepare(
+      HOUSEHOLD_SELECT + "WHERE m.user_id = (SELECT user_id FROM sessions WHERE id = ?)",
+    ).bind(hash),
+  ]);
+  const row: any = sessionRes.results[0];
   if (!row) return null;
   if (Date.parse(String(row.expires_at)) <= Date.now()) {
     try {
@@ -168,17 +178,18 @@ export async function authSession(req: Request, env: AuthEnv): Promise<AuthConte
     email: String(row.email),
     created_at: String(row.created_at),
   };
-  const household = await householdFor(env, user.id);
+  const household = toHouseholdRef(householdRes.results[0]);
   return { user, household };
 }
 
-export async function householdFor(env: AuthEnv, userId: string): Promise<HouseholdRef | null> {
-  const m: any = await env.DB.prepare(
-    "SELECT h.id AS id, h.name AS name, h.creator_id AS creator_id, m.role AS role " +
-      "FROM household_members m JOIN households h ON h.id = m.household_id WHERE m.user_id = ?",
-  )
-    .bind(userId)
-    .first();
+// The household roster lookup, shared by householdFor (by user id) and
+// authSession (by session hash, via subquery) so the column list has one
+// source of truth.
+const HOUSEHOLD_SELECT =
+  "SELECT h.id AS id, h.name AS name, h.creator_id AS creator_id, m.role AS role " +
+  "FROM household_members m JOIN households h ON h.id = m.household_id ";
+
+function toHouseholdRef(m: any): HouseholdRef | null {
   if (!m) return null;
   return {
     id: String(m.id),
@@ -186,6 +197,13 @@ export async function householdFor(env: AuthEnv, userId: string): Promise<Househ
     role: String(m.role),
     creator_id: String(m.creator_id),
   };
+}
+
+export async function householdFor(env: AuthEnv, userId: string): Promise<HouseholdRef | null> {
+  const m: any = await env.DB.prepare(HOUSEHOLD_SELECT + "WHERE m.user_id = ?")
+    .bind(userId)
+    .first();
+  return toHouseholdRef(m);
 }
 
 export async function issueSession(
