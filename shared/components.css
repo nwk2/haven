@@ -111,6 +111,9 @@
 }
 .error { color: #b3261e; }
 [data-theme="dark"] .error { color: #f2a49b; }
+/* Session-token entry on the sign-in screen: collapsed by default. */
+.token-entry { margin-top: 1rem; }
+.token-entry summary { cursor: pointer; }
 .muted { color: var(--ink-muted); font-size: 0.9rem; }
 .setup-card {
   text-align: left; max-width: 26rem; margin: 1rem auto; padding: 1rem 1.25rem;

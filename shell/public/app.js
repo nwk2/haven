@@ -177,7 +177,11 @@ function renderSignIn(notice) {
     + `<p>One household app, one login. Sign in with Google to open your household.</p>`
     + (notice ? `<p class="error">${escapeHTML(notice)}</p>` : "")
     + `<p><button class="btn btn-primary" id="google-signin" type="button">Sign in with Google</button></p>`
-    + `<p>Every household member needs a Google account. No password is stored.</p></div>`;
+    + `<p>Every household member needs a Google account. No password is stored.</p>`
+    + `<div class="token-entry"><details><summary>Use a session token</summary>`
+    + `<p><input class="field" id="session-token" type="text" placeholder="Session token" autocomplete="off" autocapitalize="off" spellcheck="false"></p>`
+    + `<p><button class="btn" id="token-signin" type="button">Sign in with token</button></p>`
+    + `</details></div></div>`;
   document.getElementById("google-signin").addEventListener("click", () => {
     const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     try {
@@ -188,6 +192,28 @@ function renderSignIn(notice) {
       window.location.origin + "/",
       state,
     );
+  });
+  // Session-token entry (verification aid, not a second login): a token
+  // pasted here is stored exactly like a Google-issued one and the normal
+  // session check runs. The server only ever accepts an already-valid
+  // token — this path can never mint a session. A paste field (not a
+  // ?session= URL parameter) keeps the token out of logged URLs.
+  document.getElementById("token-signin").addEventListener("click", () => {
+    const token = document.getElementById("session-token").value.trim();
+    if (!token) {
+      renderSignIn("Paste a session token first.");
+      return;
+    }
+    // Same fresh-session reset as the Google callback: store the token,
+    // drop any cached /api/me + /api/household + module responses, then
+    // run the normal session check. routeInner() calls /api/me and, on a
+    // 401, clears the token and shows "Your session ended — sign in again."
+    const btn = document.getElementById("token-signin");
+    btn.disabled = true;
+    setToken(token);
+    clearSessionCaches();
+    modulesCache = null;
+    void route();
   });
 }
 

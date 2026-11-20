@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.2.0"; // Kitchen core: Recipes, Plan, Today (Batch 3)
+const VERSION = "0.2.1"; // Sign-in: session token entry (verification aid)
 
 export interface Env {
   ASSETS: Fetcher;
