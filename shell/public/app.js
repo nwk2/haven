@@ -108,7 +108,11 @@ function showSignOut(on) {
   signOutButton.hidden = !on;
 }
 signOutButton.addEventListener("click", async () => {
-  await api("/api/auth/logout", "POST");
+  try {
+    await api("/api/auth/logout", "POST");
+  } catch {
+    // Still sign out locally: the server session just stays until it expires.
+  }
   setToken(null);
   modulesCache = null;
   void route();
@@ -116,16 +120,33 @@ signOutButton.addEventListener("click", async () => {
 
 // api(): same-origin JSON call with the session token when one exists.
 // A 401 means the session ended (or was revoked) — the caller re-routes
-// to the sign-in screen.
+// to the sign-in screen. Requests time out after 15 s instead of hanging
+// forever: a hung request must surface as an error the user can retry,
+// never a blank page. A timeout throws an error with timedOut set.
+const API_TIMEOUT_MS = 15000;
 async function api(path, method = "GET", body = null) {
   const headers = { "Content-Type": "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : null,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : null,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const error = new Error(
+      controller.signal.aborted ? "request timed out" : "request failed",
+    );
+    error.timedOut = controller.signal.aborted;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await res.json().catch(() => ({}));
   return { res, data };
 }
@@ -159,9 +180,12 @@ function renderSignIn(notice) {
 
 // Google redirected back with ?code=...&state=... — verify the state nonce,
 // exchange the code with the Worker, store the session token. Returns true
-// when a session was established.
+// when a session was established. Shows a loading state while the exchange
+// runs, and on ANY failure renders the sign-in screen with a specific
+// message — the sign-in button is the retry. Never leaves a bare page.
 async function handleGoogleCallback(code, state) {
   history.replaceState(null, "", window.location.pathname);
+  app.innerHTML = `<div class="empty-state"><p>Signing you in…</p></div>`;
   let stored = null;
   try {
     stored = localStorage.getItem(GOOGLE_STATE_KEY);
@@ -171,10 +195,21 @@ async function handleGoogleCallback(code, state) {
     renderSignIn("Sign-in didn’t complete — please try again.");
     return false;
   }
-  const { res, data } = await api("/api/auth/google", "POST", {
-    code,
-    redirect_uri: window.location.origin + "/",
-  });
+  let res;
+  let data;
+  try {
+    ({ res, data } = await api("/api/auth/google", "POST", {
+      code,
+      redirect_uri: window.location.origin + "/",
+    }));
+  } catch (err) {
+    renderSignIn(
+      err.timedOut
+        ? "Signing in took too long — check your connection and try again."
+        : "Couldn’t reach Haven to finish signing in — check your connection and try again.",
+    );
+    return false;
+  }
   if (!res.ok || !data.ok || !data.token) {
     renderSignIn("Google sign-in failed — please try again.");
     return false;
@@ -388,7 +423,7 @@ async function openModule(mod) {
   }
 }
 
-async function route() {
+async function routeInner() {
   const params = new URLSearchParams(window.location.search);
 
   // 1. Google redirected back (?code=...&state=...).
@@ -414,7 +449,23 @@ async function route() {
   }
 
   // 4. Who is this, and do they have a household?
-  const { res, data } = await api("/api/me");
+  // A failed session check (timeout, network) is not a signed-out user:
+  // show the sign-in screen with a specific message instead of a blank
+  // page — the sign-in button is the retry.
+  let res;
+  let data;
+  try {
+    ({ res, data } = await api("/api/me"));
+  } catch (err) {
+    setToken(null);
+    modulesCache = null;
+    renderSignIn(
+      err.timedOut
+        ? "Haven didn’t respond in time — check your connection and try again."
+        : "Couldn’t reach Haven — check your connection and try again.",
+    );
+    return;
+  }
   if (res.status === 401 || !res.ok || !data.ok) {
     setToken(null);
     modulesCache = null;
@@ -478,6 +529,30 @@ async function route() {
     return;
   }
   await renderHome(me);
+}
+
+// Error state with a retry: any unexpected throw inside the router lands
+// here instead of leaving the static loading text (or a blank page) on
+// screen with no way forward.
+function renderErrorState(message) {
+  showSignOut(false);
+  bottomNav.innerHTML = "";
+  app.innerHTML = `<div class="empty-state"><h2>Something went wrong</h2>`
+    + `<p>${escapeHTML(message)}</p>`
+    + `<p><button class="btn btn-primary" id="retry-route" type="button">Try again</button></p></div>`;
+  document.getElementById("retry-route").addEventListener("click", () => void route());
+}
+
+// route() is the only entry point; routeInner() does the work. A throw
+// anywhere in the router (bad module chunk, failed render, unexpected
+// response shape) renders the error state above instead of dying silently.
+async function route() {
+  try {
+    await routeInner();
+  } catch (err) {
+    console.warn("route failed", err);
+    renderErrorState("Haven hit a problem loading this screen — please try again.");
+  }
 }
 
 document.addEventListener("click", (event) => {

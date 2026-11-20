@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.3"; // Batch 2 — Google-only login, household
+const VERSION = "0.1.4"; // Batch 2 follow-up — visible sign-in failures, 15s API timeout
 
 export interface Env {
   ASSETS: Fetcher;
