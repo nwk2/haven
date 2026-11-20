@@ -1,15 +1,26 @@
 // Assemble dist/ for the Worker assets binding.
-//   shell/public/*            -> dist/*
-//   shared/*.css, shared/*.js -> dist/*   (tokens, components, shell logic)
+//   shell/public/index.html  -> dist/index.html  (CSS + JS inlined at build time)
+//   shell/public/* (other files) -> dist/*
 //   modules/<name>/client/*   -> dist/<name>/*   (lazy-loaded route chunks)
 //
-// No bundler: shell and module client code is plain JS, copied as-is. If a
-// module later needs a build step, it lands in that module's folder and
-// this script calls it. Adding a module means adding its folder — no edit
-// here (Batch 1: the module copy is generic over modules/*).
-import { cpSync, mkdirSync, rmSync, readdirSync, existsSync, statSync } from "node:fs";
+// Single-request shell boot (v0.1.6): the shell boots from the one HTML
+// document. tokens.css + components.css are inlined into a <style> block
+// and app.js (bundled with its shared imports by esbuild) is inlined into
+// a <script type="module"> block. Per-request stalls on slow connections
+// made the old 6-request boot (html + 2 css + app.js + 2 module imports)
+// land in random half-booted states; the HTML document itself arrives
+// fast, so everything the shell needs to boot travels in that one
+// request. Source files stay separate and are the source of truth —
+// inlining happens only here, at build time. The now-unreferenced shell
+// files (app.js, shell-logic.js, components.js, tokens.css,
+// components.css) are NOT copied to dist/ and are never served. Module
+// chunks stay separate lazy-loaded files: they load only when a module
+// opens, after boot, so they are not part of the boot path. Adding a
+// module still means adding its folder — no edit here (Batch 1).
+import { cpSync, mkdirSync, rmSync, readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -17,14 +28,74 @@ const dist = join(root, "dist");
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
-cpSync(join(root, "shell", "public"), dist, { recursive: true });
+// Bundle the shell app: app.js + its shared imports, one module script.
+// app.js imports "/shell-logic.js" and "/components.js" (absolute paths in
+// the served site); a small plugin redirects those to the shared sources
+// (esbuild's `alias` option rejects absolute-path keys). The dynamic chunk
+// import (import(chunkUrl(...))) stays dynamic — module chunks are
+// lazy-loaded after boot and are not part of the bundle.
+const shellImports = {
+  name: "shell-absolute-imports",
+  setup(build) {
+    const map = {
+      "/shell-logic.js": join(root, "shared", "shell-logic.js"),
+      "/components.js": join(root, "shared", "components.js"),
+    };
+    build.onResolve({ filter: /^\/[^/]+\.js$/ }, (args) => {
+      if (map[args.path]) return { path: map[args.path] };
+      return undefined;
+    });
+  },
+};
+const bundle = await build({
+  entryPoints: [join(root, "shell", "public", "app.js")],
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "es2020",
+  write: false,
+  plugins: [shellImports],
+});
+const appJs = bundle.outputFiles[0].text;
 
-// Shared tokens, components and logic: flat into dist/, skipping README.
-for (const entry of readdirSync(join(root, "shared"))) {
-  const src = join(root, "shared", entry);
-  if (statSync(src).isFile() && (entry.endsWith(".css") || entry.endsWith(".js"))) {
-    cpSync(src, join(dist, entry));
-  }
+// Inline the shell stylesheets.
+const css =
+  readFileSync(join(root, "shared", "tokens.css"), "utf8") +
+  "\n" +
+  readFileSync(join(root, "shared", "components.css"), "utf8");
+
+// Build dist/index.html from the source template: inline the CSS where
+// the two stylesheet links were, and inline the bundled app where the
+// app.js script tag was. Anything else in the template (theme boot
+// script, preconnects, non-blocking font link, static loading state)
+// passes through untouched. Both replacements must land exactly once —
+// if the template changes shape, fail loudly instead of shipping a
+// half-inlined document.
+let html = readFileSync(join(root, "shell", "public", "index.html"), "utf8");
+const cssLinks = '<link rel="stylesheet" href="/tokens.css">\n<link rel="stylesheet" href="/components.css">';
+const appScript = '<script type="module" src="/app.js"></script>';
+if (!html.includes(cssLinks) || !html.includes(appScript)) {
+  throw new Error("build: index.html template shape changed — expected CSS links and app.js script tag not found");
+}
+html = html.replace(
+  cssLinks,
+  `<style>\n${css.replaceAll("</style", "<\\/style")}\n</style>`,
+);
+html = html.replace(
+  appScript,
+  `<script type="module">\n${appJs.replaceAll("</script", "<\\/script")}\n</script>`,
+);
+writeFileSync(
+  join(dist, "index.html"),
+  "<!-- Generated by scripts/build.mjs — do not edit; source is shell/public/index.html -->\n" + html,
+);
+
+// Shell public files other than the template and the app entry: copied
+// as-is (favicon, manifest, …). index.html is generated above and
+// app.js is bundled inline, so neither is copied.
+for (const entry of readdirSync(join(root, "shell", "public"))) {
+  if (entry === "index.html" || entry === "app.js") continue;
+  cpSync(join(root, "shell", "public", entry), join(dist, entry), { recursive: true });
 }
 
 // Every module's client chunk, lazy-loaded under its own path.

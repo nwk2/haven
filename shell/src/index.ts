@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.5"; // Non-blocking Google Fonts load — font no longer gates app boot
+const VERSION = "0.1.6"; // Single-request shell boot — CSS + JS inlined into index.html at build time
 
 export interface Env {
   ASSETS: Fetcher;
