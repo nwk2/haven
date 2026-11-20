@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.1"; // UI polish pass (0.3.1)
+const VERSION = "0.3.2"; // Ingredient category picker (0.3.2)
 
 export interface Env {
   ASSETS: Fetcher;

@@ -370,7 +370,7 @@ function todayMealHTML(m) {
       html += `<h3 class="section-head">Ingredients</h3><ul>`;
       for (const ing of r.ingredients) {
         const qty = [ing.quantity, ing.unit].filter((x) => x !== null && x !== undefined && x !== "").join(" ");
-        html += `<li>${qty ? `${escapeHTML(String(qty))} ` : ""}${escapeHTML(ing.name)}${ing.prep_note ? ` — ${escapeHTML(ing.prep_note)}` : ""}</li>`;
+        html += `<li>${qty ? `${escapeHTML(String(qty))} ` : ""}${escapeHTML(cap(ing.name))}${ing.prep_note ? ` — ${escapeHTML(ing.prep_note)}` : ""}</li>`;
       }
       html += `</ul>`;
     }
@@ -1050,7 +1050,7 @@ async function renderRecipeDetail(ctx) {
     html += `<h3 class="section-head">Ingredients</h3><ul>`;
     for (const ing of r.ingredients) {
       const qty = [ing.quantity, ing.unit].filter((x) => x !== null && x !== undefined && x !== "").join(" ");
-      html += `<li>${qty ? `${escapeHTML(String(qty))} ` : ""}${escapeHTML(ing.name)}${ing.prep_note ? ` — ${escapeHTML(ing.prep_note)}` : ""}</li>`;
+      html += `<li>${qty ? `${escapeHTML(String(qty))} ` : ""}${escapeHTML(cap(ing.name))}${ing.prep_note ? ` — ${escapeHTML(ing.prep_note)}` : ""}</li>`;
     }
     html += `</ul>`;
   }
@@ -1106,15 +1106,22 @@ async function renderRecipeDetail(ctx) {
 
 function ingredientRowHTML(ing) {
   const i = ing || {};
-  // Two lines: name + Remove on top, qty / unit / prep note below.
-  // The old single wrapped row squeezed the name field and let Remove
-  // land wherever the wrap fell.
+  // Three lines: name + Remove on top, qty / unit / prep note below,
+  // category on its own line — the 0.3.1 polish made rows two lines
+  // because a wrapped row squeezed the name field and let Remove land
+  // wherever the wrap fell; the category select gets the same treatment.
+  // The name displays capitalised (cap) to match the detail view; the
+  // value sent on save is canonicalised server-side (lowercased), so
+  // the stored canonical name never changes.
   return `<div class="list-row rf-ing-row">`
-    + `<div class="rf-line"><input class="field ing-name" type="text" placeholder="Ingredient" autocomplete="off" value="${escapeHTML(i.name || "")}">`
+    + `<div class="rf-line"><input class="field ing-name" type="text" placeholder="Ingredient" autocomplete="off" value="${escapeHTML(cap(i.name || ""))}">`
     + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div>`
     + `<div class="rf-line"><input class="field ing-qty" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i.quantity ?? ""}">`
     + `<input class="field ing-unit" type="text" placeholder="Unit" autocomplete="off" value="${escapeHTML(i.unit || "")}">`
-    + `<input class="field ing-prep" type="text" placeholder="Prep note" autocomplete="off" value="${escapeHTML(i.prep_note || "")}"></div></div>`;
+    + `<input class="field ing-prep" type="text" placeholder="Prep note" autocomplete="off" value="${escapeHTML(i.prep_note || "")}"></div>`
+    + `<div class="rf-line"><select class="field ing-category" aria-label="Category"><option value="">No category</option>`
+    + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}"${i.category === c ? " selected" : ""}>${escapeHTML(c)}</option>`).join("")
+    + `</select></div></div>`;
 }
 function stepRowHTML(step) {
   const s = step || {};
@@ -1251,6 +1258,7 @@ async function renderRecipeForm(ctx) {
         quantity: Number.isFinite(qty) && qty > 0 ? qty : null,
         unit: row.querySelector(".ing-unit").value.trim() || null,
         prep_note: row.querySelector(".ing-prep").value.trim() || null,
+        category: row.querySelector(".ing-category").value || null,
       };
     }).filter((ing) => ing.name.length > 0);
     const steps = [...stepHost.querySelectorAll(".rf-step-row")].map((row) => {

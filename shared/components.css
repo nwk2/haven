@@ -126,6 +126,7 @@
 .rf-line .ing-name, .rf-line .ing-prep, .rf-line .step-text { flex: 1; }
 .rf-line .ing-qty, .rf-line .step-duration { width: 4.5rem; flex: none; }
 .rf-line .ing-unit { width: 4rem; flex: none; }
+.rf-line .ing-category { flex: 1; }
 .rf-step-actions { justify-content: flex-end; }
 
 /* --- Plan grid --- */

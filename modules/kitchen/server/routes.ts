@@ -189,7 +189,7 @@ async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<
   const [recipeRes, ingRes, stepRes, evRes, membersRes] = await k.DB.batch([
     k.DB.prepare("SELECT * FROM cook_recipes WHERE id = ? AND household_id = ?").bind(id, hid),
     k.DB.prepare(
-      "SELECT i.*, s.canonical_name AS item_name FROM cook_recipe_ingredients i " +
+      "SELECT i.*, s.canonical_name AS item_name, s.category AS item_category FROM cook_recipe_ingredients i " +
         "JOIN shop_items s ON s.id = i.item_id WHERE i.recipe_id = ? ORDER BY i.sort_order",
     ).bind(id),
     k.DB.prepare("SELECT * FROM cook_recipe_steps WHERE recipe_id = ? ORDER BY step_no").bind(id),
@@ -223,6 +223,7 @@ async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<
       quantity: i.quantity ?? null,
       unit: i.unit ?? null,
       prep_note: i.prep_note ?? null,
+      category: i.item_category ? String(i.item_category) : null,
       sort_order: Number(i.sort_order),
     })),
     steps: (stepRes.results as any[]).map((s: any) => ({
@@ -234,7 +235,7 @@ async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<
 }
 
 // --- Input cleaning (null = field not provided, [] = provided but empty) ---
-type IngredientIn = { name: string; quantity: number | null; unit: string | null; prep_note: string | null };
+type IngredientIn = { name: string; quantity: number | null; unit: string | null; prep_note: string | null; category: string | null };
 type StepIn = { text: string; duration_minutes: number | null };
 
 function cleanIngredients(input: unknown): IngredientIn[] | null {
@@ -253,6 +254,12 @@ function cleanIngredients(input: unknown): IngredientIn[] | null {
         typeof it?.prep_note === "string" && it.prep_note.trim()
           ? it.prep_note.trim().slice(0, 200)
           : null,
+      // A category must be one of the Shop's store-order categories;
+      // anything else (including a missing one) means "no category" —
+      // the ingredient stays uncategorised and its Shop lines land
+      // under "Other". A valid category teaches the catalogue (see
+      // applyIngredientCategories), it never clears an existing one.
+      category: typeof it?.category === "string" && isShopCategory(it.category) ? it.category : null,
     }))
     .filter((it) => it.name.length > 0);
 }
@@ -494,6 +501,7 @@ async function createRecipe(request: Request, env: unknown, ctx: AuthContext | n
     );
   });
   await k.DB.batch(writes);
+  await applyIngredientCategories(k, itemIds, ingredients);
   const cooks = await memberNames(k, auth.hid);
   return json(
     {
@@ -611,6 +619,7 @@ async function updateRecipe(request: Request, env: unknown, ctx: AuthContext | n
     });
   }
   if (writes.length > 0) await k.DB.batch(writes);
+  if (ingredients !== null) await applyIngredientCategories(k, itemIds, ingredients);
   const full = await fetchRecipeFull(k, auth.hid, id);
   return json({ ok: true, recipe: full });
 }
@@ -1621,6 +1630,24 @@ async function resolveCanonical(
 // Set the category on the canonical item too (the catalogue learns).
 async function setItemCategory(k: KitchenEnv, itemId: string, category: string): Promise<void> {
   await k.DB.prepare("UPDATE shop_items SET category = ? WHERE id = ?").bind(category, itemId).run();
+}
+
+// A category set on a recipe ingredient teaches the catalogue, the same
+// mechanism as the Shop line edit: the category is stored on the
+// ingredient's canonical shop_item, so future Shop lists group that
+// item's lines under the heading. Runs AFTER the recipe save (its own
+// awaits), so a catalogue update can never roll back the recipe itself.
+// Ingredients without a category leave the stored category untouched.
+async function applyIngredientCategories(
+  k: KitchenEnv,
+  itemIds: Map<string, string>,
+  ingredients: IngredientIn[],
+): Promise<void> {
+  for (const ing of ingredients) {
+    if (!ing.category) continue;
+    const itemId = itemIds.get(canonicalName(ing.name));
+    if (itemId) await setItemCategory(k, itemId, ing.category);
+  }
 }
 
 function insertLineStmt(
