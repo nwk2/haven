@@ -23,11 +23,12 @@ run_worker_first = true
 
 # D1 — one database for the whole app (spec §11). Tables are prefixed per
 # module (cook_*, shop_*); shell tables are unprefixed.
-# Database created 2026-11-20 (Batch 0 follow-up): id below is the real one.
+# Database recreated 2026-11-20 with an APAC primary (was ENAM, ~250ms/query):
+# old DB 6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15 deleted; id below is the new one.
 [[d1_databases]]
 binding = "DB"
-database_name = "haven"
-database_id = "6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15"
+database_name = "haven-apac"
+database_id = "add5f3b5-e586-410d-9c44-0c3b7b038795"
 migrations_dir = "shell/migrations"
 
 # Observability: keep invocation logs enabled (Don't Ngiao lesson, Nov 2026).
