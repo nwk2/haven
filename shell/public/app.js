@@ -258,8 +258,30 @@ function renderHouseholdSetup(notice) {
       renderHouseholdSetup("Give the household a name first.");
       return;
     }
-    const { res, data } = await api("/api/household", "POST", { name });
+    // Busy state: the create POST takes seconds on a slow connection and
+    // the setup screen otherwise sits unchanged with no feedback. The
+    // button is disabled while the request is in flight, so a double-tap
+    // cannot issue a second create.
+    const btn = document.getElementById("create-household");
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+    let res;
+    let data;
+    try {
+      ({ res, data } = await api("/api/household", "POST", { name }));
+    } catch {
+      // Timeout / network: the request may or may not have landed. The
+      // button is restored so the user can retry; the server rejects a
+      // second household (already_in_household), so a retry can never
+      // create a duplicate.
+      btn.disabled = false;
+      btn.textContent = "Create household";
+      renderHouseholdSetup("Couldn’t create the household — please try again.");
+      return;
+    }
     if (!res.ok || !data.ok) {
+      btn.disabled = false;
+      btn.textContent = "Create household";
       renderHouseholdSetup("Couldn’t create the household — please try again.");
       return;
     }
@@ -272,12 +294,30 @@ function renderHouseholdSetup(notice) {
       renderHouseholdSetup("Paste the invite code first.");
       return;
     }
-    const joined = await tryJoin(invite);
+    // Busy state, same shape as create: the join POST takes seconds on a
+    // slow connection. Disabled while in flight, so a double-tap cannot
+    // issue a second join.
+    const btn = document.getElementById("join-household");
+    btn.disabled = true;
+    btn.textContent = "Joining…";
+    let joined;
+    try {
+      joined = await tryJoin(invite);
+    } catch {
+      // Timeout / network: restore the button so the user can retry. No
+      // error is shown — the invalid-invite message would be wrong here,
+      // and the screen is unchanged, so the user just taps again.
+      btn.disabled = false;
+      btn.textContent = "Join household";
+      return;
+    }
     if (joined) {
       clearInvite();
       clearSessionCaches(); // the cached /api/me still says "no household"
       void route();
     } else {
+      btn.disabled = false;
+      btn.textContent = "Join household";
       renderHouseholdSetup("That invite link isn’t valid — check the code and try again.");
     }
   });
@@ -337,10 +377,25 @@ function wireHouseholdPanel(hh, me) {
   const revokeBtn = document.getElementById("revoke-invite");
   if (revokeBtn) {
     revokeBtn.addEventListener("click", async () => {
-      const { res, data } = await api("/api/household/invite/revoke", "POST");
+      // Busy state: the revoke POST takes seconds on a slow connection.
+      // Disabled while in flight, so a double-tap cannot revoke twice.
+      revokeBtn.disabled = true;
+      revokeBtn.textContent = "Revoking…";
+      let res;
+      let data;
+      try {
+        ({ res, data } = await api("/api/household/invite/revoke", "POST"));
+      } catch {
+        revokeBtn.disabled = false;
+        revokeBtn.textContent = "Revoke invite link";
+        return;
+      }
       if (res.ok && data.ok) {
         clearSessionCaches(); // the cached household still has the old invite link
         void route();
+      } else {
+        revokeBtn.disabled = false;
+        revokeBtn.textContent = "Revoke invite link";
       }
     });
   }
@@ -353,7 +408,18 @@ function wireHouseholdPanel(hh, me) {
         confirmLabel: "Leave",
       });
       if (!yes) return;
-      await api("/api/household/leave", "POST");
+      // Busy state on the button (the sheet is already closed): the leave
+      // POST takes seconds on a slow connection. Disabled while in flight,
+      // so a double-tap cannot leave twice.
+      leaveBtn.disabled = true;
+      leaveBtn.textContent = "Leaving…";
+      try {
+        await api("/api/household/leave", "POST");
+      } catch {
+        leaveBtn.disabled = false;
+        leaveBtn.textContent = "Leave household";
+        return;
+      }
       clearSessionCaches(); // the cached /api/me still says "has household"
       modulesCache = null;
       void route();

@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.7"; // Session + household cached in memory across navigations
+const VERSION = "0.1.8"; // Session + household cached in memory across navigations
 
 export interface Env {
   ASSETS: Fetcher;
