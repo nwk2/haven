@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.1.4"; // Batch 2 follow-up — visible sign-in failures, 15s API timeout
+const VERSION = "0.1.5"; // Non-blocking Google Fonts load — font no longer gates app boot
 
 export interface Env {
   ASSETS: Fetcher;
