@@ -162,6 +162,11 @@ export function mount(el) {
     recipesView: { kind: "list" },
     allRecipes: [],
     members: null,
+    // Shop
+    shopView: "this", // "this" | "next"
+    shopData: null,
+    // Pantry
+    pantryItems: [],
   };
 
   const tabsHTML = `<nav style="display:flex;gap:0.25rem;border-bottom:1px solid var(--border);margin-bottom:1rem;overflow-x:auto">`
@@ -241,6 +246,21 @@ function friendlyError(data) {
     invalid_servings: "Servings must be a positive number.",
     recipe_not_found: "That recipe no longer exists.",
     invalid_leftover_source: "Pick an earlier planned recipe as the leftovers source.",
+    no_active_run: "Generate a shopping list first.",
+    active_run_exists: "Finish the current shopping run first.",
+    invalid_week: "Pick this week or next week.",
+    invalid_category: "Pick a category from the list.",
+    invalid_state: "That list state isn’t valid.",
+    invalid_quantity: "Quantity must be a positive number.",
+    invalid_run_date: "Pick a run date that isn’t in the future.",
+    invalid_price: "Prices must be 0 or more.",
+    invalid_carry_over: "That carry-over choice isn’t valid.",
+    invalid_on_hand: "Pick Have or Out.",
+    item_required: "Give the item a name first.",
+    item_not_found: "That item no longer exists.",
+    line_not_found: "That list item no longer exists.",
+    run_finished: "That shopping run is finished.",
+    pantry_item_not_found: "That pantry item no longer exists.",
   };
   return (data && data.error && map[data.error]) || "Something went wrong — please try again.";
 }
@@ -1266,12 +1286,682 @@ async function renderRecipeForm(ctx) {
 
 // --- SHOP / PANTRY (Batch 4) ---
 
+const SHOP_CATEGORIES = ["Produce", "Meat and seafood", "Dairy and chilled", "Pantry and dry"];
+
+function shopGroupFor(line) {
+  return SHOP_CATEGORIES.includes(line.category) ? line.category : "Other";
+}
+function qtyLabel(line) {
+  const parts = [];
+  if (line.quantity !== null && line.quantity !== undefined) parts.push(String(line.quantity));
+  if (line.unit) parts.push(line.unit);
+  return parts.join(" ");
+}
+function daysAgoLabel(dateStr) {
+  const d = parseLocalDate(dateStr);
+  const today = parseLocalDate(localTodayStr());
+  if (!d || !today) return "";
+  const diff = Math.round((today - d) / 86400000);
+  if (diff <= 0) return diff === 0 ? "today" : "in the future";
+  return diff === 1 ? "yesterday" : `${diff} days ago`;
+}
+function lastBoughtLabel(line) {
+  if (!line.last_bought_date) return "";
+  let s = `Last bought ${daysAgoLabel(line.last_bought_date)}`;
+  if (line.last_unit_price !== null && line.last_unit_price !== undefined) {
+    s += ` · $${Number(line.last_unit_price).toFixed(2)}`;
+  }
+  return s;
+}
+function lineSourcesLabel(line) {
+  if (line.source === "pantry_out") return "Pantry";
+  if (line.source === "manual") return "Added manually";
+  if (line.source === "carry_over") return "Carried over";
+  const srcs = line.sources || [];
+  if (srcs.length === 0) return "";
+  return srcs.map((s) => `${s.name} — ${weekdayShort(s.date)} ${s.meal}`).join(", ");
+}
+
+// Canonical-item suggestions for the manual-add / pantry-add name
+// fields: type at least 2 characters, pick a match to fill the name
+// (and the category when the item has one). Picking remembers the
+// item id; editing the name afterwards drops it (the caller checks
+// the name still matches before sending item_id).
+function wireItemSuggest(ctx, inputEl, suggestEl, onPick) {
+  let seq = 0;
+  inputEl.addEventListener("input", async () => {
+    const q = inputEl.value.trim();
+    const mySeq = ++seq;
+    if (q.length < 2) {
+      suggestEl.innerHTML = "";
+      return;
+    }
+    let res, data;
+    try {
+      ({ res, data } = await api(`/api/kitchen/shop/items?q=${encodeURIComponent(q)}&limit=8`));
+    } catch {
+      return;
+    }
+    if (mySeq !== seq || !isCurrent(ctx)) return;
+    if (!res.ok || !data.ok || !data.items || data.items.length === 0) {
+      suggestEl.innerHTML = "";
+      return;
+    }
+    suggestEl.innerHTML = data.items.map((it) =>
+      `<div class="list-row"><span style="flex:1;min-width:0">${escapeHTML(it.name)}`
+      + (it.category ? ` <span class="muted">— ${escapeHTML(it.category)}</span>` : "")
+      + `</span><button class="btn btn-ghost" type="button" data-suggest-id="${escapeHTML(it.id)}" data-suggest-name="${escapeHTML(it.name)}" data-suggest-category="${escapeHTML(it.category || "")}">Use</button></div>`
+    ).join("");
+    suggestEl.querySelectorAll("[data-suggest-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        onPick({
+          id: btn.getAttribute("data-suggest-id"),
+          name: btn.getAttribute("data-suggest-name"),
+          category: btn.getAttribute("data-suggest-category") || null,
+        });
+        suggestEl.innerHTML = "";
+      });
+    });
+  });
+}
+
+function shopLineHTML(l, finished) {
+  const qty = qtyLabel(l);
+  const meta = [];
+  const src = lineSourcesLabel(l);
+  if (src) meta.push(src);
+  if (l.is_rounded && l.unrounded_quantity !== null && l.unrounded_quantity !== undefined) {
+    meta.push(`rounded up from ${l.unrounded_quantity}`);
+  }
+  const lb = lastBoughtLabel(l);
+  if (lb) meta.push(lb);
+  let html = `<div class="list-row" style="flex-wrap:wrap"><div style="flex:1;min-width:10rem">`
+    + `<strong>${escapeHTML(l.display_name)}</strong>${qty ? ` — ${escapeHTML(qty)}` : ""}`;
+  if (meta.length > 0) html += `<br><span class="muted">${meta.map(escapeHTML).join(" · ")}</span>`;
+  html += `</div>`;
+  if (!finished) {
+    html += l.state === "checked"
+      ? `<button class="btn btn-primary" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="checked">Uncheck</button>`
+      : `<button class="btn btn-ghost" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="to_buy">Check off</button>`;
+    html += `<button class="btn btn-ghost" type="button" data-shop-edit="${escapeHTML(l.id)}">Edit</button>`;
+    html += `<button class="btn btn-ghost" type="button" data-shop-remove="${escapeHTML(l.id)}" data-shop-name="${escapeHTML(l.display_name)}">Remove</button>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 async function renderShop(ctx) {
-  ctx.content.innerHTML = `<div class="empty-state"><h2>Shop</h2>`
-    + `<p>The shopping list arrives in Batch 4.</p></div>`;
+  const thisWeek = mondayStrOf(localTodayStr());
+  const weekStart = ctx.shopView === "next" ? addDaysStr(thisWeek, 7) : thisWeek;
+  ctx.content.innerHTML = loadingHTML("shopping list");
+  let res, data;
+  try {
+    ({ res, data } = await api(`/api/kitchen/shop?week_start=${weekStart}`));
+  } catch {
+    if (!isCurrent(ctx)) return;
+    ctx.content.innerHTML = loadErrorHTML(ctx, "shopping list");
+    wireRetry(ctx, () => renderShop(ctx));
+    return;
+  }
+  if (!isCurrent(ctx)) return;
+  if (res.status === 401) {
+    ctx.content.innerHTML = sessionEndedHTML();
+    return;
+  }
+  if (!res.ok || !data.ok) {
+    ctx.content.innerHTML = loadErrorHTML(ctx, "shopping list");
+    wireRetry(ctx, () => renderShop(ctx));
+    return;
+  }
+  ctx.shopData = data;
+  const run = data.run;
+  const weekEnd = addDaysStr(weekStart, 6);
+  const activeOtherWeek = data.active_run_week_start && data.active_run_week_start !== weekStart;
+
+  let html = noticeHTML(ctx)
+    + `<h2 class="section-head">Shop — week of ${shortDateLabel(weekStart)} – ${shortDateLabel(weekEnd)}</h2>`
+    + `<p><button class="btn ${ctx.shopView === "this" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="this">This week</button> `
+    + `<button class="btn ${ctx.shopView === "next" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="next">Next week</button></p>`;
+
+  if (!run) {
+    if (activeOtherWeek) {
+      const otherView = data.active_run_week_start === thisWeek ? "this" : "next";
+      html += `<div class="empty-state"><h2>Your active list is for the week of ${shortDateLabel(data.active_run_week_start)}</h2>`
+        + `<p>Finish that run first — one active list at a time.</p>`
+        + `<p><button class="btn btn-primary" type="button" data-shop-view="${otherView}">View that list</button></p></div>`;
+    } else {
+      html += `<div class="empty-state"><h2>No shopping list yet</h2>`
+        + `<p>Generate one from this week’s plan — quantities scale to the planned servings.</p>`
+        + `<p><button class="btn btn-primary" type="button" id="shop-generate">Generate shopping list</button></p></div>`;
+    }
+    ctx.content.innerHTML = html;
+    wireShop(ctx, weekStart);
+    return;
+  }
+
+  const finished = run.status === "finished";
+  const statusLabel = run.status === "draft" ? "Draft" : run.status === "shopping" ? "Shopping" : "Finished";
+  html += `<p class="muted">Status: ${statusLabel}`
+    + (run.run_date ? ` · shopped ${shortDateLabel(run.run_date)}` : "")
+    + (run.store ? ` · ${escapeHTML(run.store)}` : "") + `</p>`;
+
+  if (data.plan_changed) {
+    html += `<div class="list"><div class="list-row"><span style="flex:1;min-width:0">The plan changed after this list was made.</span>`
+      + `<button class="btn btn-primary" type="button" id="shop-regenerate">Regenerate</button></div></div>`;
+  }
+
+  const noIng = data.no_ingredient_recipes || [];
+  if (noIng.length > 0) {
+    html += `<div class="list"><div class="list-row"><span>⚠ No ingredients recorded — add items manually if needed: `
+      + noIng.map((r) => `${escapeHTML(r.name)} (${escapeHTML(weekdayShort(r.date))} ${escapeHTML(r.meal)})`).join(", ")
+      + `</span></div></div>`;
+  }
+
+  const lines = data.lines || [];
+  const toBuy = lines.filter((l) => l.state === "to_buy");
+  const checked = lines.filter((l) => l.state === "checked");
+  if (lines.length === 0) {
+    html += `<p class="muted">Nothing on the list yet.</p>`;
+  }
+  for (const cat of [...SHOP_CATEGORIES, "Other"]) {
+    const group = toBuy.filter((l) => shopGroupFor(l) === cat);
+    if (group.length === 0) continue;
+    html += `<h3 class="section-head">${cat}</h3><div class="list">`;
+    for (const l of group) html += shopLineHTML(l, finished);
+    html += `</div>`;
+  }
+  if (checked.length > 0) {
+    html += `<details><summary>In trolley (${checked.length})</summary><div class="list">`;
+    for (const l of checked) html += shopLineHTML(l, finished);
+    html += `</div></details>`;
+  }
+
+  if (!finished) {
+    html += `<h3 class="section-head">Add an item</h3>`
+      + `<p><input class="field" id="shop-add-name" type="text" placeholder="Item name" autocomplete="off" maxlength="200"></p>`
+      + `<div id="shop-add-suggest" class="list"></div>`
+      + `<p><input class="field" id="shop-add-qty" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" style="width:5rem"> `
+      + `<input class="field" id="shop-add-unit" type="text" placeholder="Unit" autocomplete="off" style="width:5rem"> `
+      + `<select class="field" id="shop-add-category"><option value="">Category (optional)</option>`
+      + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("")
+      + `</select></p>`
+      + `<p><button class="btn btn-primary" type="button" id="shop-add-go">Add to list</button></p><p class="error" id="shop-add-error"></p>`
+      + `<p><button class="btn btn-primary" type="button" id="shop-finish">Finish run</button></p>`;
+  }
+
+  ctx.content.innerHTML = html;
+  wireShop(ctx, weekStart);
+}
+
+function wireShop(ctx, weekStart) {
+  ctx.content.querySelectorAll("[data-shop-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      ctx.shopView = btn.getAttribute("data-shop-view");
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  });
+
+  const genBtn = ctx.content.querySelector("#shop-generate");
+  if (genBtn) {
+    genBtn.addEventListener("click", async () => {
+      const restore = busy(genBtn, "Generating…");
+      let res, data;
+      try {
+        ({ res, data } = await api("/api/kitchen/shop/generate", "POST", { week_start: weekStart }));
+      } catch {
+        restore();
+        ctx.notice = "Couldn’t generate — check your connection and try again.";
+        void renderShop(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        ctx.notice = friendlyError(data);
+        void renderShop(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  }
+
+  const regenBtn = ctx.content.querySelector("#shop-regenerate");
+  if (regenBtn) {
+    regenBtn.addEventListener("click", async () => {
+      const yes = await confirmPrompt({
+        title: "Regenerate the list?",
+        message: "Rebuilds the plan-derived lines from the current plan. Your edits to those lines, and any check-offs on them, will be replaced — items you added manually stay.",
+        confirmLabel: "Regenerate",
+      });
+      if (!yes || !isCurrent(ctx)) return;
+      const restore = busy(regenBtn, "Regenerating…");
+      let res, data;
+      try {
+        ({ res, data } = await api("/api/kitchen/shop/generate", "POST", { week_start: weekStart }));
+      } catch {
+        restore();
+        ctx.notice = "Couldn’t regenerate — check your connection and try again.";
+        void renderShop(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        ctx.notice = friendlyError(data);
+        void renderShop(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  }
+
+  ctx.content.querySelectorAll("[data-shop-toggle]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-shop-toggle");
+      const next = btn.getAttribute("data-shop-state") === "checked" ? "to_buy" : "checked";
+      const restore = busy(btn, "Saving…");
+      let res, data;
+      try {
+        ({ res, data } = await api(`/api/kitchen/shop/lines?id=${encodeURIComponent(id)}`, "PATCH", { state: next }));
+      } catch {
+        restore();
+        ctx.notice = "Couldn’t update that item — check your connection and try again.";
+        void renderShop(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        ctx.notice = friendlyError(data);
+        void renderShop(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  });
+
+  ctx.content.querySelectorAll("[data-shop-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const line = (ctx.shopData.lines || []).find((l) => l.id === btn.getAttribute("data-shop-edit"));
+      if (line) openLineEditor(ctx, line);
+    });
+  });
+
+  ctx.content.querySelectorAll("[data-shop-remove]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-shop-remove");
+      const name = btn.getAttribute("data-shop-name");
+      const yes = await confirmPrompt({
+        title: "Remove this item?",
+        message: `Remove ${escapeHTML(name)} from the shopping list?`,
+        confirmLabel: "Remove",
+      });
+      if (!yes || !isCurrent(ctx)) return;
+      let res, data;
+      try {
+        ({ res, data } = await api(`/api/kitchen/shop/lines?id=${encodeURIComponent(id)}`, "DELETE"));
+      } catch {
+        ctx.notice = "Couldn’t remove that item — check your connection and try again.";
+        void renderShop(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        ctx.notice = friendlyError(data);
+        void renderShop(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  });
+
+  const addName = ctx.content.querySelector("#shop-add-name");
+  const addSuggest = ctx.content.querySelector("#shop-add-suggest");
+  const addBtn = ctx.content.querySelector("#shop-add-go");
+  if (addName && addBtn) {
+    let picked = null;
+    wireItemSuggest(ctx, addName, addSuggest, (it) => {
+      picked = it;
+      addName.value = it.name;
+      const catSel = ctx.content.querySelector("#shop-add-category");
+      if (catSel && it.category && !catSel.value) catSel.value = it.category;
+    });
+    addBtn.addEventListener("click", async () => {
+      const errEl = ctx.content.querySelector("#shop-add-error");
+      const name = addName.value.trim();
+      if (!name) {
+        if (errEl) errEl.textContent = "Give the item a name first.";
+        return;
+      }
+      const qtyRaw = ctx.content.querySelector("#shop-add-qty").value.trim();
+      const qty = qtyRaw === "" ? null : Number(qtyRaw);
+      if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) {
+        if (errEl) errEl.textContent = "Quantity must be a positive number.";
+        return;
+      }
+      const payload = {
+        quantity: qty,
+        unit: ctx.content.querySelector("#shop-add-unit").value.trim() || null,
+        category: ctx.content.querySelector("#shop-add-category").value || null,
+      };
+      if (picked && picked.name === name) payload.item_id = picked.id;
+      else payload.name = name;
+      const restore = busy(addBtn, "Adding…");
+      let res, data;
+      try {
+        ({ res, data } = await api("/api/kitchen/shop/lines", "POST", payload));
+      } catch {
+        restore();
+        if (errEl) errEl.textContent = "Couldn’t add that item — check your connection and try again.";
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        if (errEl) errEl.textContent = friendlyError(data);
+        return;
+      }
+      ctx.notice = "";
+      void renderShop(ctx);
+    });
+  }
+
+  const finishBtn = ctx.content.querySelector("#shop-finish");
+  if (finishBtn) {
+    finishBtn.addEventListener("click", () => openFinishRun(ctx, weekStart));
+  }
+}
+
+// Edit a line's quantity / unit / category. Editing a quantity clears
+// the rounding flag server-side — the planner took ownership.
+function openLineEditor(ctx, line) {
+  const body = document.createElement("div");
+  body.innerHTML = `<p><label class="muted">Quantity</label><br><input class="field" id="le-qty" type="number" min="0" step="any" inputmode="decimal" style="width:6rem" value="${line.quantity ?? ""}"></p>`
+    + `<p><label class="muted">Unit</label><br><input class="field" id="le-unit" type="text" autocomplete="off" style="width:6rem" value="${escapeHTML(line.unit || "")}"></p>`
+    + `<p><label class="muted">Category</label><br><select class="field" id="le-category"><option value="">No category</option>`
+    + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}"${line.category === c ? " selected" : ""}>${escapeHTML(c)}</option>`).join("")
+    + `</select></p>`
+    + `<p class="error" id="le-error"></p>`;
+  const close = openSheet({
+    title: `Edit ${line.display_name}`,
+    body,
+    actions: [{ label: "Cancel", kind: "ghost" }],
+  });
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "btn btn-primary";
+  saveBtn.textContent = "Save";
+  body.appendChild(saveBtn);
+  saveBtn.addEventListener("click", async () => {
+    const errEl = body.querySelector("#le-error");
+    const qtyRaw = body.querySelector("#le-qty").value.trim();
+    const qty = qtyRaw === "" ? null : Number(qtyRaw);
+    if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) {
+      errEl.textContent = "Quantity must be a positive number.";
+      return;
+    }
+    const restore = busy(saveBtn, "Saving…");
+    let res, data;
+    try {
+      ({ res, data } = await api(`/api/kitchen/shop/lines?id=${encodeURIComponent(line.id)}`, "PATCH", {
+        quantity: qty,
+        unit: body.querySelector("#le-unit").value.trim() || null,
+        category: body.querySelector("#le-category").value || null,
+      }));
+    } catch {
+      restore();
+      errEl.textContent = "Couldn’t save — check your connection and try again.";
+      return;
+    }
+    if (!res.ok || !data.ok) {
+      restore();
+      errEl.textContent = friendlyError(data);
+      return;
+    }
+    close();
+    ctx.notice = "";
+    void renderShop(ctx);
+  });
+}
+
+// Finish run sheet: run date (default today), store, one optional
+// price per checked line, carry-over checkboxes for to-buy items
+// (checked by default). Only finishing creates purchases.
+function openFinishRun(ctx, weekStart) {
+  const data = ctx.shopData;
+  const lines = data.lines || [];
+  const checked = lines.filter((l) => l.state === "checked");
+  const toBuy = lines.filter((l) => l.state === "to_buy");
+  const body = document.createElement("div");
+  let html = `<p class="muted">Week of ${shortDateLabel(weekStart)} · ${checked.length} checked, ${toBuy.length} still to buy.</p>`
+    + `<p><label class="muted">Run date</label><br><input class="field" id="finish-date" type="date" value="${localTodayStr()}" style="width:10rem"></p>`
+    + `<p><label class="muted">Store (optional)</label><br><input class="field" id="finish-store" type="text" placeholder="Store" autocomplete="off" maxlength="100"></p>`;
+  if (checked.length > 0) {
+    html += `<h3 class="section-head">Prices (optional, per checked item)</h3>`;
+    for (const l of checked) {
+      const qty = qtyLabel(l);
+      html += `<p><label class="muted">${escapeHTML(l.display_name)}${qty ? ` — ${escapeHTML(qty)}` : ""}</label><br>`
+        + `<input class="field finish-price" data-line-id="${escapeHTML(l.id)}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Price" style="width:8rem"></p>`;
+    }
+  } else {
+    html += `<p class="muted">Nothing checked — finishing records no purchases.</p>`;
+  }
+  if (toBuy.length > 0) {
+    html += `<h3 class="section-head">Carry over to the next list?</h3><p class="muted">Ticked items carry over; the rest are archived with this run as not bought.</p>`;
+    for (const l of toBuy) {
+      const qty = qtyLabel(l);
+      html += `<p><label><input type="checkbox" class="finish-carry" data-line-id="${escapeHTML(l.id)}" checked> ${escapeHTML(l.display_name)}${qty ? ` — ${escapeHTML(qty)}` : ""}</label></p>`;
+    }
+  }
+  html += `<p class="error" id="finish-error"></p>`;
+  body.innerHTML = html;
+  const close = openSheet({
+    title: "Finish run",
+    body,
+    actions: [
+      { label: "Cancel", kind: "ghost" },
+      {
+        label: "Finish run",
+        kind: "primary",
+        onClick: () => {
+          void (async () => {
+            const errEl = body.querySelector("#finish-error");
+            const runDate = body.querySelector("#finish-date").value;
+            const store = body.querySelector("#finish-store").value.trim();
+            const prices = [...body.querySelectorAll(".finish-price")].map((input) => {
+              const raw = input.value.trim();
+              return raw === "" ? null : { line_id: input.getAttribute("data-line-id"), price: Number(raw) };
+            }).filter((p) => p !== null);
+            if (prices.some((p) => !Number.isFinite(p.price) || p.price < 0)) {
+              ctx.notice = "Prices must be 0 or more.";
+              close();
+              void renderShop(ctx);
+              return;
+            }
+            const carryOver = [...body.querySelectorAll(".finish-carry")]
+              .filter((box) => box.checked)
+              .map((box) => box.getAttribute("data-line-id"));
+            let res, data;
+            try {
+              ({ res, data } = await api("/api/kitchen/shop/finish", "POST", {
+                run_date: runDate || undefined,
+                store: store || undefined,
+                prices,
+                carry_over: carryOver,
+              }));
+            } catch {
+              ctx.notice = "Couldn’t finish the run — check your connection and try again.";
+              void renderShop(ctx);
+              return;
+            }
+            if (!res.ok || !data.ok) {
+              ctx.notice = friendlyError(data);
+              void renderShop(ctx);
+              return;
+            }
+            ctx.notice = `Finished — ${data.purchased} purchased, ${data.carried_over} carried over to the next list.`;
+            void renderShop(ctx);
+          })();
+        },
+      },
+    ],
+  });
 }
 
 async function renderPantry(ctx) {
-  ctx.content.innerHTML = `<div class="empty-state"><h2>Pantry</h2>`
-    + `<p>Pantry arrives in Batch 4.</p></div>`;
+  ctx.content.innerHTML = loadingHTML("pantry");
+  let res, data;
+  try {
+    ({ res, data } = await api("/api/kitchen/pantry"));
+  } catch {
+    if (!isCurrent(ctx)) return;
+    ctx.content.innerHTML = loadErrorHTML(ctx, "pantry");
+    wireRetry(ctx, () => renderPantry(ctx));
+    return;
+  }
+  if (!isCurrent(ctx)) return;
+  if (res.status === 401) {
+    ctx.content.innerHTML = sessionEndedHTML();
+    return;
+  }
+  if (!res.ok || !data.ok) {
+    ctx.content.innerHTML = loadErrorHTML(ctx, "pantry");
+    wireRetry(ctx, () => renderPantry(ctx));
+    return;
+  }
+  ctx.pantryItems = data.items || [];
+
+  let html = noticeHTML(ctx)
+    + `<h2 class="section-head">Pantry</h2>`
+    + `<p class="muted">Out puts the item back on the shopping list.</p>`;
+  if (ctx.pantryItems.length === 0) {
+    html += `<div class="empty-state"><p>No pantry staples yet — add the things you usually keep on hand.</p></div>`;
+  } else {
+    let currentCat = null;
+    for (const it of ctx.pantryItems) {
+      const cat = shopGroupFor({ category: it.category });
+      if (cat !== currentCat) {
+        if (currentCat !== null) html += `</div>`;
+        html += `<h3 class="section-head">${cat}</h3><div class="list">`;
+        currentCat = cat;
+      }
+      const lb = it.last_bought_date ? `Last bought ${daysAgoLabel(it.last_bought_date)}` : "";
+      html += `<div class="list-row" style="flex-wrap:wrap"><span style="flex:1;min-width:8rem"><strong>${escapeHTML(it.name)}</strong>`
+        + (lb ? `<br><span class="muted">${escapeHTML(lb)}</span>` : "")
+        + `</span>`
+        + `<button class="btn ${it.on_hand === "have" ? "btn-primary" : "btn-ghost"}" type="button" data-pantry-toggle="${escapeHTML(it.item_id)}" data-pantry-state="${escapeHTML(it.on_hand)}">${it.on_hand === "have" ? "Have" : "Out"}</button>`
+        + `<button class="btn btn-ghost" type="button" data-pantry-remove="${escapeHTML(it.item_id)}" data-pantry-name="${escapeHTML(it.name)}">Remove</button></div>`;
+    }
+    if (currentCat !== null) html += `</div>`;
+  }
+
+  html += `<h3 class="section-head">Add a staple</h3>`
+    + `<p><input class="field" id="pantry-add-name" type="text" placeholder="Item name" autocomplete="off" maxlength="200"></p>`
+    + `<div id="pantry-add-suggest" class="list"></div>`
+    + `<p><select class="field" id="pantry-add-category"><option value="">Category (optional)</option>`
+    + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("")
+    + `</select> `
+    + `<select class="field" id="pantry-add-state"><option value="have">Have</option><option value="out">Out</option></select></p>`
+    + `<p><button class="btn btn-primary" type="button" id="pantry-add-go">Add staple</button></p><p class="error" id="pantry-add-error"></p>`;
+
+  ctx.content.innerHTML = html;
+  wirePantry(ctx);
+}
+
+function wirePantry(ctx) {
+  ctx.content.querySelectorAll("[data-pantry-toggle]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const itemId = btn.getAttribute("data-pantry-toggle");
+      const next = btn.getAttribute("data-pantry-state") === "have" ? "out" : "have";
+      const restore = busy(btn, "Saving…");
+      let res, data;
+      try {
+        ({ res, data } = await api(`/api/kitchen/pantry?item_id=${encodeURIComponent(itemId)}`, "PATCH", { on_hand: next }));
+      } catch {
+        restore();
+        ctx.notice = "Couldn’t update that staple — check your connection and try again.";
+        void renderPantry(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        ctx.notice = friendlyError(data);
+        void renderPantry(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderPantry(ctx);
+    });
+  });
+
+  ctx.content.querySelectorAll("[data-pantry-remove]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const itemId = btn.getAttribute("data-pantry-remove");
+      const name = btn.getAttribute("data-pantry-name");
+      const yes = await confirmPrompt({
+        title: "Remove this staple?",
+        message: `Remove ${escapeHTML(name)} from the pantry? The shopping list is left alone.`,
+        confirmLabel: "Remove",
+      });
+      if (!yes || !isCurrent(ctx)) return;
+      let res, data;
+      try {
+        ({ res, data } = await api(`/api/kitchen/pantry?item_id=${encodeURIComponent(itemId)}`, "DELETE"));
+      } catch {
+        ctx.notice = "Couldn’t remove that staple — check your connection and try again.";
+        void renderPantry(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        ctx.notice = friendlyError(data);
+        void renderPantry(ctx);
+        return;
+      }
+      ctx.notice = "";
+      void renderPantry(ctx);
+    });
+  });
+
+  const addName = ctx.content.querySelector("#pantry-add-name");
+  const addSuggest = ctx.content.querySelector("#pantry-add-suggest");
+  const addBtn = ctx.content.querySelector("#pantry-add-go");
+  if (addName && addBtn) {
+    let picked = null;
+    wireItemSuggest(ctx, addName, addSuggest, (it) => {
+      picked = it;
+      addName.value = it.name;
+      const catSel = ctx.content.querySelector("#pantry-add-category");
+      if (catSel && it.category && !catSel.value) catSel.value = it.category;
+    });
+    addBtn.addEventListener("click", async () => {
+      const errEl = ctx.content.querySelector("#pantry-add-error");
+      const name = addName.value.trim();
+      if (!name) {
+        if (errEl) errEl.textContent = "Give the staple a name first.";
+        return;
+      }
+      const payload = {
+        category: ctx.content.querySelector("#pantry-add-category").value || null,
+        on_hand: ctx.content.querySelector("#pantry-add-state").value,
+      };
+      if (picked && picked.name === name) payload.item_id = picked.id;
+      else payload.name = name;
+      const restore = busy(addBtn, "Adding…");
+      let res, data;
+      try {
+        ({ res, data } = await api("/api/kitchen/pantry", "POST", payload));
+      } catch {
+        restore();
+        if (errEl) errEl.textContent = "Couldn’t add that staple — check your connection and try again.";
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        if (errEl) errEl.textContent = friendlyError(data);
+        return;
+      }
+      ctx.notice = "";
+      void renderPantry(ctx);
+    });
+  }
 }

@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.2.1"; // Sign-in: session token entry (verification aid)
+const VERSION = "0.3.0"; // Shop derivation + Pantry (Batch 4)
 
 export interface Env {
   ASSETS: Fetcher;

@@ -1,4 +1,5 @@
 // Kitchen module server routes — Batch 3: Recipes, Plan, Today.
+// Batch 4: Shop derivation + Pantry (below, before the route table).
 // (Haven spec §5–9; Cook Board spec §3–4, §8, §10.)
 //
 // Handlers receive the shell auth context (user + household) — modules run
@@ -1162,6 +1163,1000 @@ async function getNextMeal(_request: Request, env: unknown, ctx: AuthContext | n
   });
 }
 
+// --- Shop + Pantry (Batch 4) ---
+//
+// One unified shopping list per week, grouped by grocery category in
+// store order (Haven §7). The list is derived from the week's plan at
+// generation time only (Option A scaling, Cook Board §5): quantity x
+// meal servings / recipe servings; a recipe with no servings recorded
+// is not scaled; Eat out / Leftovers slots contribute nothing.
+// Countable items round UP to whole AFTER aggregation (two recipes each
+// contributing 1.5 eggs aggregate to 3.0, unflagged — rounding is never
+// per-ingredient); weights/volumes keep the scaled value. Any rounded
+// line is flagged with its unrounded value.
+//
+// The specs never define "countable", so the classification is a
+// documented judgment call: a unit is weight/volume iff, lowercased and
+// trimmed, it is in WEIGHT_VOLUME_UNITS; everything else (pcs, piece,
+// whole, each, pack, bunch, null/empty unit, ...) is countable.
+//
+// Pantry is manual Have/Out only, no quantities, no auto-deduction.
+// Have fully covers an item (boolean pantry: no partial coverage), so
+// its plan lines are dropped at generation; Out puts the item back on
+// the list. There is no standing-items source: the Haven spec has no
+// standing-items list and its source enum has no 'standing' value.
+//
+// Finish run is the ONLY thing that creates purchases
+// (checked-but-not-bought, Cook Board §6): a checked line becomes a
+// purchase, a to-buy line never does, and to-buy lines flagged at
+// finish are carried into the next run's generation, otherwise archived
+// with the run as not bought.
+
+const SHOP_CATEGORIES = ["Produce", "Meat and seafood", "Dairy and chilled", "Pantry and dry"] as const;
+type ShopCategory = (typeof SHOP_CATEGORIES)[number];
+
+function categoryRank(category: string | null): number {
+  const i = (SHOP_CATEGORIES as readonly string[]).indexOf(category || "");
+  return i === -1 ? SHOP_CATEGORIES.length : i;
+}
+function isShopCategory(v: unknown): v is ShopCategory {
+  return typeof v === "string" && (SHOP_CATEGORIES as readonly string[]).includes(v);
+}
+
+// Weight/volume units (lowercased, trimmed). Everything else counts.
+const WEIGHT_VOLUME_UNITS = new Set([
+  "g", "kg", "mg", "ml", "l", "litre", "litres", "liter", "liters", "dl", "cl",
+  "cup", "cups", "tbsp", "tsp", "tablespoon", "tablespoons", "teaspoon", "teaspoons",
+  "oz", "lb", "fl oz",
+]);
+function isCountableUnit(unit: string | null): boolean {
+  if (!unit) return true;
+  return !WEIGHT_VOLUME_UNITS.has(unit.trim().toLowerCase());
+}
+// Float noise (0.1 + 0.2) must not flag a whole quantity as fractional.
+function isWholeQty(q: number): boolean {
+  return Math.abs(q - Math.round(q)) < 1e-9;
+}
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+function cleanQty(v: unknown): number | null | undefined {
+  if (v === undefined || v === null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+function cleanUnit(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, 20) : null;
+}
+
+type DerivedLine = {
+  item_id: string;
+  display_name: string;
+  quantity: number | null;
+  unit: string | null;
+  is_rounded: number;
+  unrounded_quantity: number | null;
+  category: string | null;
+  source: string;
+  source_recipe_id: string | null;
+  source_date: string | null;
+  sources: { recipe_id: string; name: string; date: string; meal: string }[];
+};
+
+type DeriveResult = {
+  lines: DerivedLine[];
+  noIngredientRecipes: { recipe_id: string; name: string; date: string; meal: string }[];
+  fingerprint: string;
+  planId: string | null;
+  carryOverSourceIds: string[];
+};
+
+// The plan fingerprint: the week's sorted slot tuples. List edits never
+// affect it, so they never trigger the "plan changed" banner.
+function planFingerprint(days: any[]): string {
+  const tuples = days
+    .map((d: any) => [
+      String(d.date),
+      String(d.meal),
+      String(d.state),
+      d.recipe_id ? String(d.recipe_id) : null,
+      d.servings ?? null,
+      d.source_date ? String(d.source_date) : null,
+      d.source_meal ? String(d.source_meal) : null,
+    ])
+    .sort((a: any, b: any) =>
+      a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : mealRank(a[1]) - mealRank(b[1]),
+    );
+  return JSON.stringify(tuples);
+}
+
+// Derive the week's shop lines from the plan + pantry + carry-over.
+// Pure read (no writes); the caller inserts the lines and, for
+// carry-over, clears the consumed flags in the same batch.
+async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Promise<DeriveResult> {
+  const plan = await weekPlan(k, hid, weekStart);
+  const days = plan ? await weekDays(k, String(plan.id)) : [];
+  const fingerprint = planFingerprint(days);
+  const recipeSlots = days.filter((d: any) => d.state === "recipe" && d.recipe_id);
+  const recipeIds = [...new Set(recipeSlots.map((d: any) => String(d.recipe_id)))];
+  const noIngredientRecipes: DeriveResult["noIngredientRecipes"] = [];
+
+  const stmts: D1PreparedStatement[] = [];
+  if (recipeIds.length > 0) {
+    const ph = recipeIds.map(() => "?").join(",");
+    stmts.push(
+      k.DB.prepare(`SELECT id, name, servings FROM cook_recipes WHERE id IN (${ph})`).bind(...recipeIds),
+      k.DB.prepare(
+        `SELECT i.recipe_id AS recipe_id, i.item_id AS item_id, i.quantity AS quantity, i.unit AS unit, ` +
+          `s.canonical_name AS item_name, s.category AS category ` +
+          `FROM cook_recipe_ingredients i JOIN shop_items s ON s.id = i.item_id ` +
+          `WHERE i.recipe_id IN (${ph}) ORDER BY i.recipe_id, i.sort_order`,
+      ).bind(...recipeIds),
+    );
+  }
+  const pantryIdx = stmts.length;
+  stmts.push(
+    k.DB.prepare(
+      "SELECT p.item_id AS item_id, p.on_hand AS on_hand, s.canonical_name AS name, " +
+        "s.category AS category, s.default_unit AS default_unit " +
+        "FROM shop_pantry_items p JOIN shop_items s ON s.id = p.item_id WHERE p.household_id = ?",
+    ).bind(hid),
+  );
+  const carryIdx = stmts.length;
+  stmts.push(
+    k.DB.prepare(
+      "SELECT l.* FROM shop_list_items l WHERE l.carry_over = 1 AND l.run_id = (" +
+        "SELECT id FROM shop_runs WHERE household_id = ? AND status = 'finished' " +
+        "ORDER BY finished_at DESC, created_at DESC LIMIT 1)",
+    ).bind(hid),
+  );
+  const results = await k.DB.batch(stmts);
+  const recipesRes = recipeIds.length > 0 ? results[0] : null;
+  const ingRes = recipeIds.length > 0 ? results[1] : null;
+  const pantryRes = results[pantryIdx];
+  const carryRes = results[carryIdx];
+
+  const recipes = new Map<string, { name: string; servings: number | null }>();
+  for (const r of (recipesRes?.results || []) as any[]) {
+    recipes.set(String(r.id), { name: String(r.name), servings: r.servings ?? null });
+  }
+  const ingsByRecipe = new Map<string, any[]>();
+  for (const i of (ingRes?.results || []) as any[]) {
+    const arr = ingsByRecipe.get(String(i.recipe_id)) || [];
+    arr.push(i);
+    ingsByRecipe.set(String(i.recipe_id), arr);
+  }
+  for (const slot of recipeSlots) {
+    if ((ingsByRecipe.get(String(slot.recipe_id)) || []).length === 0) {
+      const r = recipes.get(String(slot.recipe_id));
+      noIngredientRecipes.push({
+        recipe_id: String(slot.recipe_id),
+        name: r ? r.name : String(slot.recipe_name || ""),
+        date: String(slot.date),
+        meal: String(slot.meal),
+      });
+    }
+  }
+
+  // Aggregate by (item_id, unit): same item sums when units match, a
+  // unit mismatch keeps two lines. Sources list one entry per
+  // contributing SLOT (two slots of the same recipe list twice).
+  const agg = new Map<string, {
+    item_id: string;
+    display_name: string;
+    unit: string | null;
+    category: string | null;
+    total: number;
+    hasQty: boolean;
+    sources: DerivedLine["sources"];
+    seenSlots: Set<string>;
+  }>();
+  for (const slot of recipeSlots) {
+    const recipe = recipes.get(String(slot.recipe_id));
+    if (!recipe) continue;
+    const mealServings = slot.servings ?? recipe.servings;
+    const factor =
+      mealServings != null && recipe.servings != null && recipe.servings > 0
+        ? mealServings / recipe.servings
+        : 1;
+    for (const ing of ingsByRecipe.get(String(slot.recipe_id)) || []) {
+      const unit = cleanUnit(ing.unit);
+      const key = `${String(ing.item_id)}|${unit ?? ""}`;
+      let e = agg.get(key);
+      if (!e) {
+        e = {
+          item_id: String(ing.item_id),
+          display_name: String(ing.item_name),
+          unit,
+          category: ing.category ? String(ing.category) : null,
+          total: 0,
+          hasQty: false,
+          sources: [],
+          seenSlots: new Set(),
+        };
+        agg.set(key, e);
+      }
+      if (typeof ing.quantity === "number" && Number.isFinite(ing.quantity)) {
+        e.total += ing.quantity * factor;
+        e.hasQty = true;
+      }
+      const slotKey = `${String(slot.date)}|${String(slot.meal)}|${String(slot.recipe_id)}`;
+      if (!e.seenSlots.has(slotKey)) {
+        e.seenSlots.add(slotKey);
+        e.sources.push({
+          recipe_id: String(slot.recipe_id),
+          name: recipe.name,
+          date: String(slot.date),
+          meal: String(slot.meal),
+        });
+      }
+    }
+  }
+
+  // Pantry: Have fully covers an item (boolean pantry, no partial
+  // coverage); Out items are appended below unless already on the list.
+  const pantryHave = new Set<string>();
+  const pantryOut: { item_id: string; name: string; category: string | null; default_unit: string | null }[] = [];
+  for (const p of pantryRes.results as any[]) {
+    if (String(p.on_hand) === "have") pantryHave.add(String(p.item_id));
+    else if (String(p.on_hand) === "out") {
+      pantryOut.push({
+        item_id: String(p.item_id),
+        name: String(p.name),
+        category: p.category ? String(p.category) : null,
+        default_unit: p.default_unit ? String(p.default_unit) : null,
+      });
+    }
+  }
+
+  const lines: DerivedLine[] = [];
+  for (const e of agg.values()) {
+    if (pantryHave.has(e.item_id)) continue;
+    let quantity: number | null = e.hasQty ? e.total : null;
+    let isRounded = 0;
+    let unrounded: number | null = null;
+    if (quantity !== null && !isWholeQty(quantity) && isCountableUnit(e.unit)) {
+      unrounded = quantity;
+      quantity = Math.ceil(quantity - 1e-9);
+      isRounded = 1;
+    }
+    lines.push({
+      item_id: e.item_id,
+      display_name: e.display_name,
+      quantity,
+      unit: e.unit,
+      is_rounded: isRounded,
+      unrounded_quantity: unrounded,
+      category: e.category,
+      source: "plan",
+      source_recipe_id: e.sources[0]?.recipe_id ?? null,
+      source_date: e.sources[0]?.date ?? null,
+      sources: e.sources,
+    });
+  }
+  const onList = new Set(lines.map((l) => l.item_id));
+  for (const p of pantryOut) {
+    if (onList.has(p.item_id)) continue; // already on the list via its plan line
+    lines.push({
+      item_id: p.item_id,
+      display_name: p.name,
+      quantity: null,
+      unit: p.default_unit,
+      is_rounded: 0,
+      unrounded_quantity: null,
+      category: p.category,
+      source: "pantry_out",
+      source_recipe_id: null,
+      source_date: null,
+      sources: [],
+    });
+  }
+
+  // Carry-over from the latest finished run: appended as their own
+  // lines (same item/qty/unit); the caller clears the consumed flags
+  // in the same batch as the insert, so a regenerate cannot re-append
+  // them. A carry-over line is NOT merged into a plan line for the same
+  // item — each keeps its own provenance.
+  const carryOverSourceIds: string[] = [];
+  for (const l of carryRes.results as any[]) {
+    carryOverSourceIds.push(String(l.id));
+    lines.push({
+      item_id: String(l.item_id),
+      display_name: String(l.display_name),
+      quantity: l.quantity ?? null,
+      unit: l.unit ?? null,
+      is_rounded: 0,
+      unrounded_quantity: null,
+      category: l.category ? String(l.category) : null,
+      source: "carry_over",
+      source_recipe_id: l.source_recipe_id ? String(l.source_recipe_id) : null,
+      source_date: l.source_date ? String(l.source_date) : null,
+      sources: parseSources(l.sources),
+    });
+  }
+
+  return {
+    lines,
+    noIngredientRecipes,
+    fingerprint,
+    planId: plan ? String(plan.id) : null,
+    carryOverSourceIds,
+  };
+}
+
+function parseSources(raw: unknown): DerivedLine["sources"] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(String(raw));
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+// --- Shop helpers ---
+
+async function activeRun(k: KitchenEnv, hid: string): Promise<any | null> {
+  return k.DB.prepare(
+    "SELECT * FROM shop_runs WHERE household_id = ? AND status IN ('draft', 'shopping') ORDER BY created_at DESC LIMIT 1",
+  )
+    .bind(hid)
+    .first();
+}
+
+// The run for a week: the active run when it is that week, else the
+// latest finished run for the week (or null).
+async function runForWeek(k: KitchenEnv, hid: string, weekStart: string): Promise<any | null> {
+  const active = await activeRun(k, hid);
+  if (active && String(active.week_start) === weekStart) return active;
+  return k.DB.prepare(
+    "SELECT * FROM shop_runs WHERE household_id = ? AND week_start = ? AND status = 'finished' ORDER BY finished_at DESC, created_at DESC LIMIT 1",
+  )
+    .bind(hid, weekStart)
+    .first();
+}
+
+// Most recent purchase per item (household-scoped via the run). Runs
+// are few and purchases fewer, so one ordered read + first-seen in JS.
+async function lastBoughtMap(k: KitchenEnv, hid: string): Promise<Map<string, { date: string; unit_price: number | null }>> {
+  const { results } = await k.DB.prepare(
+    "SELECT p.item_id AS item_id, p.bought_date AS bought_date, p.unit_price AS unit_price " +
+      "FROM shop_purchases p JOIN shop_runs r ON r.id = p.run_id " +
+      "WHERE r.household_id = ? ORDER BY p.bought_date DESC, p.created_at DESC",
+  )
+    .bind(hid)
+    .all();
+  const map = new Map<string, { date: string; unit_price: number | null }>();
+  for (const p of results as any[]) {
+    const id = String(p.item_id);
+    if (!map.has(id)) {
+      map.set(id, { date: String(p.bought_date), unit_price: p.unit_price ?? null });
+    }
+  }
+  return map;
+}
+
+function runShape(r: any) {
+  return {
+    id: String(r.id),
+    week_start: String(r.week_start),
+    store: r.store ? String(r.store) : null,
+    run_date: r.run_date ? String(r.run_date) : null,
+    status: String(r.status),
+    created_by: String(r.created_by),
+    created_at: String(r.created_at),
+    finished_at: r.finished_at ? String(r.finished_at) : null,
+  };
+}
+
+function lineShape(l: any, lastBought: Map<string, { date: string; unit_price: number | null }>) {
+  const lb = l.item_id ? lastBought.get(String(l.item_id)) : undefined;
+  return {
+    id: String(l.id),
+    item_id: l.item_id ? String(l.item_id) : null,
+    display_name: String(l.display_name),
+    quantity: l.quantity ?? null,
+    unit: l.unit ?? null,
+    is_rounded: Number(l.is_rounded) === 1,
+    unrounded_quantity: l.unrounded_quantity ?? null,
+    category: l.category ? String(l.category) : null,
+    state: String(l.state),
+    source: String(l.source),
+    source_recipe_id: l.source_recipe_id ? String(l.source_recipe_id) : null,
+    source_date: l.source_date ? String(l.source_date) : null,
+    sources: parseSources(l.sources),
+    carry_over: Number(l.carry_over) === 1,
+    last_bought_date: lb?.date ?? null,
+    last_unit_price: lb?.unit_price ?? null,
+  };
+}
+
+async function shopLinesForRun(k: KitchenEnv, runId: string): Promise<any[]> {
+  const { results } = await k.DB.prepare(
+    "SELECT * FROM shop_list_items WHERE run_id = ? ORDER BY " +
+      "CASE category WHEN 'Produce' THEN 0 WHEN 'Meat and seafood' THEN 1 " +
+      "WHEN 'Dairy and chilled' THEN 2 WHEN 'Pantry and dry' THEN 3 ELSE 4 END, display_name",
+  )
+    .bind(runId)
+    .all();
+  return results as any[];
+}
+
+// Resolve a manual-add target to a canonical shop_items row. item_id
+// must belong to the household; a name resolves (creating the item when
+// missing, via resolveItems). Returns the row or an error Response.
+async function resolveCanonical(
+  k: KitchenEnv,
+  hid: string,
+  body: any,
+): Promise<{ id: string; canonical_name: string; category: string | null; default_unit: string | null } | Response> {
+  if (typeof body.item_id === "string" && body.item_id) {
+    const row: any = await k.DB.prepare(
+      "SELECT * FROM shop_items WHERE id = ? AND household_id = ?",
+    )
+      .bind(body.item_id, hid)
+      .first();
+    if (!row) return err("item_not_found", 404);
+    return {
+      id: String(row.id),
+      canonical_name: String(row.canonical_name),
+      category: row.category ? String(row.category) : null,
+      default_unit: row.default_unit ? String(row.default_unit) : null,
+    };
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name || name.length > 200) return err("item_required", 400);
+  const ids = await resolveItems(k, hid, [name]);
+  const id = ids.get(canonicalName(name))!;
+  const row: any = await k.DB.prepare("SELECT * FROM shop_items WHERE id = ?").bind(id).first();
+  return {
+    id,
+    canonical_name: String(row.canonical_name),
+    category: row.category ? String(row.category) : null,
+    default_unit: row.default_unit ? String(row.default_unit) : null,
+  };
+}
+
+// Set the category on the canonical item too (the catalogue learns).
+async function setItemCategory(k: KitchenEnv, itemId: string, category: string): Promise<void> {
+  await k.DB.prepare("UPDATE shop_items SET category = ? WHERE id = ?").bind(category, itemId).run();
+}
+
+function insertLineStmt(
+  k: KitchenEnv,
+  runId: string,
+  hid: string,
+  line: DerivedLine & { state?: string; carry_over?: number; added_by?: string | null },
+): D1PreparedStatement {
+  return k.DB.prepare(
+    "INSERT INTO shop_list_items (id, run_id, household_id, item_id, display_name, quantity, unit, " +
+      "is_rounded, unrounded_quantity, category, state, source, source_recipe_id, source_date, sources, carry_over, added_by, created_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(
+    uid(),
+    runId,
+    hid,
+    line.item_id,
+    line.display_name,
+    line.quantity,
+    line.unit,
+    line.is_rounded,
+    line.unrounded_quantity,
+    line.category,
+    line.state ?? "to_buy",
+    line.source,
+    line.source_recipe_id,
+    line.source_date,
+    JSON.stringify(line.sources || []),
+    line.carry_over ?? 0,
+    line.added_by ?? null,
+    nowIso(),
+  );
+}
+
+// Ensure a pantry_out line exists in the active run for an Out pantry
+// item: skip when ANY line for the item already exists in the run (a
+// plan line already covers it); otherwise recompute its derived
+// quantity from the run week's plan when the item is in the plan, else
+// quantity null. Returns true when a line was inserted.
+async function ensurePantryOutLine(k: KitchenEnv, hid: string, run: any, itemId: string): Promise<boolean> {
+  const existing: any = await k.DB.prepare(
+    "SELECT id FROM shop_list_items WHERE run_id = ? AND item_id = ? LIMIT 1",
+  )
+    .bind(String(run.id), itemId)
+    .first();
+  if (existing) return false;
+  const item: any = await k.DB.prepare("SELECT * FROM shop_items WHERE id = ?").bind(itemId).first();
+  if (!item) return false;
+  const derived = await deriveFromPlan(k, hid, String(run.week_start));
+  const match = derived.lines.find((l) => l.item_id === itemId && l.source === "plan");
+  await insertLineStmt(k, String(run.id), hid, {
+    item_id: itemId,
+    display_name: String(item.canonical_name),
+    quantity: match ? match.quantity : null,
+    unit: match ? match.unit : item.default_unit ? String(item.default_unit) : null,
+    is_rounded: match ? match.is_rounded : 0,
+    unrounded_quantity: match ? match.unrounded_quantity : null,
+    category: match ? match.category : item.category ? String(item.category) : null,
+    source: "pantry_out",
+    source_recipe_id: match ? match.source_recipe_id : null,
+    source_date: match ? match.source_date : null,
+    sources: match ? match.sources : [],
+  }).run();
+  return true;
+}
+
+// --- Shop routes ---
+
+async function getShop(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const param = new URL(request.url).searchParams.get("week_start");
+  const monday = param ? mondayOf(parseDate(param) ?? new Date()) : mondayOf(new Date());
+  const weekStart = fmtDate(monday);
+  const active = await activeRun(k, auth.hid);
+  const run = await runForWeek(k, auth.hid, weekStart);
+  const lines = run ? await shopLinesForRun(k, String(run.id)) : [];
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  // plan_changed: recompute the fingerprint from the current plan; a
+  // mismatch on a non-finished run means the plan changed after this
+  // list was made. Finished runs are archived — plan changes don't
+  // apply to them — and a missing run has nothing to compare. The
+  // no-ingredients notice always reflects the current plan.
+  let planChanged = false;
+  let noIngredientRecipes: DeriveResult["noIngredientRecipes"] = [];
+  if (run) {
+    const derived = await deriveFromPlan(k, auth.hid, weekStart);
+    noIngredientRecipes = derived.noIngredientRecipes;
+    planChanged =
+      String(run.status) !== "finished" &&
+      Boolean(run.plan_fingerprint) &&
+      run.plan_fingerprint !== derived.fingerprint;
+  }
+  return json({
+    ok: true,
+    week_start: weekStart,
+    run: run ? runShape(run) : null,
+    lines: lines.map((l) => lineShape(l, lastBought)),
+    plan_changed: planChanged,
+    no_ingredient_recipes: noIngredientRecipes,
+    active_run_week_start: active ? String(active.week_start) : null,
+  });
+}
+
+async function generateShop(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const body = await readBody(request);
+  const weekDate = parseDate(String(body.week_start || ""));
+  if (!weekDate || weekDate.getUTCDay() !== 1) return err("invalid_week", 400);
+  const weekStart = fmtDate(weekDate);
+  const thisMonday = fmtDate(mondayOf(new Date()));
+  const nextMonday = fmtDate(addDays(mondayOf(new Date()), 7));
+  if (weekStart !== thisMonday && weekStart !== nextMonday) return err("invalid_week", 400);
+  const active = await activeRun(k, auth.hid);
+  if (active && String(active.week_start) !== weekStart) return err("active_run_exists", 409);
+  const derived = await deriveFromPlan(k, auth.hid, weekStart);
+  const now = nowIso();
+  const regenerated = Boolean(active);
+  let runId: string;
+  const writes: D1PreparedStatement[] = [];
+  if (active) {
+    runId = String(active.id);
+    // Regenerate in place: derived (plan + pantry_out) lines are
+    // rebuilt from the current plan; manual and carry_over lines stay
+    // (a planner's own lines survive a re-plan; checked state on a
+    // rebuilt plan line is lost with it, which is what Regenerate
+    // means). Carry-over flags consumed here are cleared in this same
+    // batch, so a second regenerate cannot re-append them.
+    writes.push(
+      k.DB.prepare("DELETE FROM shop_list_items WHERE run_id = ? AND source IN ('plan', 'pantry_out')").bind(runId),
+      k.DB.prepare(
+        "UPDATE shop_runs SET plan_id = ?, week_start = ?, plan_fingerprint = ? WHERE id = ?",
+      ).bind(derived.planId, weekStart, derived.fingerprint, runId),
+    );
+  } else {
+    runId = uid();
+    writes.push(
+      k.DB.prepare(
+        "INSERT INTO shop_runs (id, household_id, plan_id, week_start, status, plan_fingerprint, created_by, created_at) " +
+          "VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)",
+      ).bind(runId, auth.hid, derived.planId, weekStart, derived.fingerprint, auth.userId, now),
+    );
+  }
+  for (const line of derived.lines) writes.push(insertLineStmt(k, runId, auth.hid, line));
+  for (const srcId of derived.carryOverSourceIds) {
+    writes.push(k.DB.prepare("UPDATE shop_list_items SET carry_over = 0 WHERE id = ?").bind(srcId));
+  }
+  await k.DB.batch(writes);
+  const run: any = await k.DB.prepare("SELECT * FROM shop_runs WHERE id = ?").bind(runId).first();
+  const lines = await shopLinesForRun(k, runId);
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({
+    ok: true,
+    run: runShape(run),
+    lines: lines.map((l) => lineShape(l, lastBought)),
+    no_ingredient_recipes: derived.noIngredientRecipes,
+    regenerated,
+  });
+}
+
+async function addShopLine(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const active = await activeRun(k, auth.hid);
+  if (!active) return err("no_active_run", 404);
+  const body = await readBody(request);
+  if (body.category !== undefined && body.category !== null && !isShopCategory(body.category)) {
+    return err("invalid_category", 400);
+  }
+  const quantity = cleanQty(body.quantity);
+  if (quantity === undefined) return err("invalid_quantity", 400);
+  const unit = cleanUnit(body.unit);
+  const item = await resolveCanonical(k, auth.hid, body);
+  if (item instanceof Response) return item;
+  const category = isShopCategory(body.category) ? body.category : item.category;
+  if (isShopCategory(body.category)) await setItemCategory(k, item.id, body.category);
+  const lineId = uid();
+  const now = nowIso();
+  await k.DB.prepare(
+    "INSERT INTO shop_list_items (id, run_id, household_id, item_id, display_name, quantity, unit, " +
+      "is_rounded, unrounded_quantity, category, state, source, source_recipe_id, source_date, sources, carry_over, added_by, created_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, 'to_buy', 'manual', NULL, NULL, '[]', 0, ?, ?)",
+  )
+    .bind(lineId, String(active.id), auth.hid, item.id, item.canonical_name, quantity, unit, category, auth.userId, now)
+    .run();
+  const row: any = await k.DB.prepare("SELECT * FROM shop_list_items WHERE id = ?").bind(lineId).first();
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({ ok: true, line: lineShape(row, lastBought) }, 201);
+}
+
+// Load a line and its run, enforcing the active-run guard shared by
+// PATCH and DELETE: a line in a finished run is 409 run_finished, a
+// line in no run the caller can touch is 404 line_not_found. (The only
+// non-active runs are finished ones; a line in the active run passes.)
+async function loadEditableLine(
+  k: KitchenEnv,
+  hid: string,
+  lineId: string,
+): Promise<{ line: any; run: any } | Response> {
+  const line: any = await k.DB.prepare(
+    "SELECT * FROM shop_list_items WHERE id = ? AND household_id = ?",
+  )
+    .bind(lineId, hid)
+    .first();
+  if (!line) return err("line_not_found", 404);
+  const run: any = await k.DB.prepare("SELECT * FROM shop_runs WHERE id = ?").bind(String(line.run_id)).first();
+  if (!run) return err("line_not_found", 404);
+  if (String(run.status) === "finished") return err("run_finished", 409);
+  const active = await activeRun(k, hid);
+  if (!active || String(active.id) !== String(run.id)) return err("line_not_found", 404);
+  return { line, run };
+}
+
+async function updateShopLine(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return err("line_required", 400);
+  const loaded = await loadEditableLine(k, auth.hid, id);
+  if (loaded instanceof Response) return loaded;
+  const { line, run } = loaded;
+  const body = await readBody(request);
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (body.state !== undefined) {
+    if (body.state !== "to_buy" && body.state !== "checked") return err("invalid_state", 400);
+    sets.push("state = ?");
+    binds.push(body.state);
+  }
+  if (body.quantity !== undefined) {
+    const q = cleanQty(body.quantity);
+    if (q === undefined) return err("invalid_quantity", 400);
+    sets.push("quantity = ?");
+    binds.push(q);
+    // Editing a quantity clears the rounding flag: the planner took
+    // ownership of the number, so "rounded up from X" no longer holds.
+    sets.push("is_rounded = 0");
+    sets.push("unrounded_quantity = NULL");
+  }
+  if (body.unit !== undefined) {
+    sets.push("unit = ?");
+    binds.push(cleanUnit(body.unit));
+  }
+  let newCategory: string | null | undefined;
+  if (body.category !== undefined) {
+    if (body.category !== null && !isShopCategory(body.category)) return err("invalid_category", 400);
+    newCategory = body.category === null ? null : body.category;
+    sets.push("category = ?");
+    binds.push(newCategory);
+  }
+  const writes: D1PreparedStatement[] = [];
+  if (sets.length > 0) {
+    writes.push(
+      k.DB.prepare(`UPDATE shop_list_items SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, id),
+    );
+  }
+  // First check-off moves a draft run to shopping, in the same batch.
+  if (body.state === "checked" && String(run.status) === "draft") {
+    writes.push(k.DB.prepare("UPDATE shop_runs SET status = 'shopping' WHERE id = ?").bind(String(run.id)));
+  }
+  if (writes.length > 0) await k.DB.batch(writes);
+  // A category edit updates the canonical item too (the catalogue learns).
+  if (newCategory !== undefined && newCategory !== null && line.item_id) {
+    await setItemCategory(k, String(line.item_id), newCategory);
+  }
+  const row: any = await k.DB.prepare("SELECT * FROM shop_list_items WHERE id = ?").bind(id).first();
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({ ok: true, line: lineShape(row, lastBought) });
+}
+
+async function deleteShopLine(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return err("line_required", 400);
+  const loaded = await loadEditableLine(k, auth.hid, id);
+  if (loaded instanceof Response) return loaded;
+  await k.DB.prepare("DELETE FROM shop_list_items WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+}
+
+async function finishShopRun(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const active = await activeRun(k, auth.hid);
+  if (!active) return err("no_active_run", 404);
+  const body = await readBody(request);
+  const runDateRaw = typeof body.run_date === "string" && body.run_date ? body.run_date : fmtDate(new Date());
+  const runDate = parseDate(runDateRaw);
+  if (!runDate || runDateRaw > fmtDate(new Date())) return err("invalid_run_date", 400);
+  const store =
+    typeof body.store === "string" && body.store.trim() ? body.store.trim().slice(0, 100) : null;
+  // Prices apply to checked lines only; a price must be a finite
+  // number >= 0, else the whole finish is rejected (no partial writes).
+  const prices = new Map<string, number>();
+  if (body.prices !== undefined && body.prices !== null) {
+    if (!Array.isArray(body.prices)) return err("invalid_price", 400);
+    for (const p of body.prices) {
+      const price = typeof p?.price === "number" ? p.price : Number(p?.price);
+      if (typeof p?.line_id !== "string" || !Number.isFinite(price) || price < 0) {
+        return err("invalid_price", 400);
+      }
+      prices.set(p.line_id, price);
+    }
+  }
+  const carryOverIds = new Set<string>();
+  if (body.carry_over !== undefined && body.carry_over !== null) {
+    if (!Array.isArray(body.carry_over)) return err("invalid_carry_over", 400);
+    for (const v of body.carry_over) if (typeof v === "string") carryOverIds.add(v);
+  }
+  const lines = await shopLinesForRun(k, String(active.id));
+  const checked = lines.filter((l: any) => String(l.state) === "checked");
+  const toBuy = lines.filter((l: any) => String(l.state) === "to_buy");
+  const now = nowIso();
+  const writes: D1PreparedStatement[] = [];
+  const purchases: any[] = [];
+  for (const l of checked) {
+    const price = prices.get(String(l.id));
+    const lineTotal = price !== undefined ? round2(price) : null;
+    const unitPrice =
+      price !== undefined && typeof l.quantity === "number" && l.quantity > 0
+        ? round2(price / l.quantity)
+        : null;
+    const purchaseId = uid();
+    writes.push(
+      k.DB.prepare(
+        "INSERT INTO shop_purchases (id, run_id, item_id, quantity, unit, unit_price, line_total, bought_date, bought_by, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(
+        purchaseId,
+        String(active.id),
+        String(l.item_id),
+        l.quantity ?? null,
+        l.unit ?? null,
+        unitPrice,
+        lineTotal,
+        runDateRaw,
+        auth.userId,
+        now,
+      ),
+    );
+    purchases.push({
+      id: purchaseId,
+      item_id: String(l.item_id),
+      display_name: String(l.display_name),
+      quantity: l.quantity ?? null,
+      unit: l.unit ?? null,
+      line_total: lineTotal,
+      unit_price: unitPrice,
+      bought_date: runDateRaw,
+    });
+  }
+  let carriedOver = 0;
+  for (const l of toBuy) {
+    if (!carryOverIds.has(String(l.id))) continue;
+    writes.push(k.DB.prepare("UPDATE shop_list_items SET carry_over = 1 WHERE id = ?").bind(String(l.id)));
+    carriedOver++;
+  }
+  // All writes in ONE batch: purchase inserts + carry-over flags + the
+  // run finishing — all-or-nothing. Checked and to-buy lines STAY on
+  // the finished run as the archived record.
+  writes.push(
+    k.DB.prepare(
+      "UPDATE shop_runs SET status = 'finished', finished_at = ?, run_date = ?, store = ? WHERE id = ?",
+    ).bind(now, runDateRaw, store, String(active.id)),
+  );
+  await k.DB.batch(writes);
+  const run: any = await k.DB.prepare("SELECT * FROM shop_runs WHERE id = ?").bind(String(active.id)).first();
+  return json({ ok: true, run: runShape(run), purchases, purchased: purchases.length, carried_over: carriedOver });
+}
+
+async function searchShopItems(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const url = new URL(request.url);
+  const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
+  const limitRaw = Number(url.searchParams.get("limit") || "20");
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 50) : 20;
+  // LIKE wildcards in the query are escaped so they match literally.
+  const like = `%${q.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+  const { results } = await k.DB.prepare(
+    "SELECT id, canonical_name, category, default_unit FROM shop_items " +
+      "WHERE household_id = ? AND canonical_name LIKE ? ESCAPE '\\' ORDER BY canonical_name LIMIT ?",
+  )
+    .bind(auth.hid, like, limit)
+    .all();
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({
+    ok: true,
+    items: (results as any[]).map((r: any) => {
+      const lb = lastBought.get(String(r.id));
+      return {
+        id: String(r.id),
+        name: String(r.canonical_name),
+        category: r.category ? String(r.category) : null,
+        last_bought_date: lb?.date ?? null,
+        last_unit_price: lb?.unit_price ?? null,
+      };
+    }),
+  });
+}
+
+// --- Pantry routes ---
+
+function pantryShape(p: any, lastBought: Map<string, { date: string; unit_price: number | null }>) {
+  const lb = lastBought.get(String(p.item_id));
+  return {
+    item_id: String(p.item_id),
+    name: String(p.name),
+    category: p.category ? String(p.category) : null,
+    on_hand: String(p.on_hand),
+    last_bought_date: lb?.date ?? null,
+  };
+}
+
+async function listPantry(_request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const { results } = await k.DB.prepare(
+    "SELECT p.item_id AS item_id, p.on_hand AS on_hand, s.canonical_name AS name, s.category AS category " +
+      "FROM shop_pantry_items p JOIN shop_items s ON s.id = p.item_id WHERE p.household_id = ? " +
+      "ORDER BY CASE s.category WHEN 'Produce' THEN 0 WHEN 'Meat and seafood' THEN 1 " +
+      "WHEN 'Dairy and chilled' THEN 2 WHEN 'Pantry and dry' THEN 3 ELSE 4 END, s.canonical_name",
+  )
+    .bind(auth.hid)
+    .all();
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({ ok: true, items: (results as any[]).map((p) => pantryShape(p, lastBought)) });
+}
+
+async function addPantryItem(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const body = await readBody(request);
+  if (body.category !== undefined && body.category !== null && !isShopCategory(body.category)) {
+    return err("invalid_category", 400);
+  }
+  const onHand = body.on_hand === undefined || body.on_hand === null ? "have" : body.on_hand;
+  if (onHand !== "have" && onHand !== "out") return err("invalid_on_hand", 400);
+  const item = await resolveCanonical(k, auth.hid, body);
+  if (item instanceof Response) return item;
+  if (isShopCategory(body.category)) await setItemCategory(k, item.id, body.category);
+  // Idempotent: an existing row is returned as-is (200), not an error.
+  await k.DB.prepare(
+    "INSERT OR IGNORE INTO shop_pantry_items (household_id, item_id, on_hand) VALUES (?, ?, ?)",
+  )
+    .bind(auth.hid, item.id, onHand)
+    .run();
+  const row: any = await k.DB.prepare(
+    "SELECT p.item_id AS item_id, p.on_hand AS on_hand, s.canonical_name AS name, s.category AS category " +
+      "FROM shop_pantry_items p JOIN shop_items s ON s.id = p.item_id WHERE p.household_id = ? AND p.item_id = ?",
+  )
+    .bind(auth.hid, item.id)
+    .first();
+  // The STORED state decides (a re-add returns the existing row
+  // unchanged): Out ensures the pantry_out line, Have removes the
+  // item's lines from the active run — same as the PATCH toggle, so
+  // adding a staple as Have never leaves a stale line behind.
+  const active = await activeRun(k, auth.hid);
+  if (active) {
+    if (String(row.on_hand) === "out") {
+      await ensurePantryOutLine(k, auth.hid, active, item.id);
+    } else {
+      await k.DB.prepare("DELETE FROM shop_list_items WHERE run_id = ? AND item_id = ?")
+        .bind(String(active.id), item.id)
+        .run();
+    }
+  }
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({ ok: true, item: pantryShape(row, lastBought) });
+}
+
+async function updatePantryItem(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const itemId = new URL(request.url).searchParams.get("item_id");
+  if (!itemId) return err("pantry_item_required", 400);
+  const body = await readBody(request);
+  if (body.on_hand !== "have" && body.on_hand !== "out") return err("invalid_on_hand", 400);
+  const existing: any = await k.DB.prepare(
+    "SELECT * FROM shop_pantry_items WHERE household_id = ? AND item_id = ?",
+  )
+    .bind(auth.hid, itemId)
+    .first();
+  if (!existing) return err("pantry_item_not_found", 404);
+  await k.DB.prepare("UPDATE shop_pantry_items SET on_hand = ? WHERE household_id = ? AND item_id = ?")
+    .bind(body.on_hand, auth.hid, itemId)
+    .run();
+  const active = await activeRun(k, auth.hid);
+  if (active) {
+    if (body.on_hand === "out") {
+      await ensurePantryOutLine(k, auth.hid, active, itemId);
+    } else {
+      // Have removes that line — every active-run line for the item,
+      // whatever its source, is now covered by the pantry.
+      await k.DB.prepare("DELETE FROM shop_list_items WHERE run_id = ? AND item_id = ?")
+        .bind(String(active.id), itemId)
+        .run();
+    }
+  }
+  const row: any = await k.DB.prepare(
+    "SELECT p.item_id AS item_id, p.on_hand AS on_hand, s.canonical_name AS name, s.category AS category " +
+      "FROM shop_pantry_items p JOIN shop_items s ON s.id = p.item_id WHERE p.household_id = ? AND p.item_id = ?",
+  )
+    .bind(auth.hid, itemId)
+    .first();
+  const lastBought = await lastBoughtMap(k, auth.hid);
+  return json({ ok: true, item: pantryShape(row, lastBought) });
+}
+
+async function deletePantryItem(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const itemId = new URL(request.url).searchParams.get("item_id");
+  if (!itemId) return err("pantry_item_required", 400);
+  const meta = await k.DB.prepare("DELETE FROM shop_pantry_items WHERE household_id = ? AND item_id = ?")
+    .bind(auth.hid, itemId)
+    .run();
+  if (((meta.meta as any)?.changes ?? 0) === 0) return err("pantry_item_not_found", 404);
+  // Deliberate: deleting a pantry tracking row does NOT touch the shop
+  // list — the shopping need survives the tracking row.
+  return json({ ok: true });
+}
+
 export const kitchenApiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/kitchen/recipes", handler: listRecipes },
   { method: "POST", path: "/api/kitchen/recipes", handler: createRecipe },
@@ -1176,4 +2171,15 @@ export const kitchenApiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/kitchen/plan/cook-something-else", handler: cookSomethingElse },
   { method: "GET", path: "/api/kitchen/today", handler: getToday },
   { method: "GET", path: "/api/kitchen/next-meal", handler: getNextMeal },
+  { method: "GET", path: "/api/kitchen/shop", handler: getShop },
+  { method: "POST", path: "/api/kitchen/shop/generate", handler: generateShop },
+  { method: "POST", path: "/api/kitchen/shop/lines", handler: addShopLine },
+  { method: "PATCH", path: "/api/kitchen/shop/lines", handler: updateShopLine },
+  { method: "DELETE", path: "/api/kitchen/shop/lines", handler: deleteShopLine },
+  { method: "POST", path: "/api/kitchen/shop/finish", handler: finishShopRun },
+  { method: "GET", path: "/api/kitchen/shop/items", handler: searchShopItems },
+  { method: "GET", path: "/api/kitchen/pantry", handler: listPantry },
+  { method: "POST", path: "/api/kitchen/pantry", handler: addPantryItem },
+  { method: "PATCH", path: "/api/kitchen/pantry", handler: updatePantryItem },
+  { method: "DELETE", path: "/api/kitchen/pantry", handler: deletePantryItem },
 ];
