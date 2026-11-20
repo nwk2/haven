@@ -13,6 +13,11 @@
   --shadow: 0 1px 3px rgb(42 32 22 / 0.10);
   --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Phone-width column (0.3.1): the widest current iPhones. On a phone
+     this is invisible (viewport <= 430px); on desktop the app renders as
+     a centred 430px column, so the cloud browser — which cannot be
+     resized to phone width — verifies true phone-width layout. */
+  --app-max-width: 430px;
   color-scheme: light;
 }
 

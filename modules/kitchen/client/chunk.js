@@ -317,8 +317,8 @@ async function renderToday(ctx) {
   if (unresolved.length > 0) {
     html += `<h2 class="section-head">Earlier this week — not recorded</h2><div class="list">`;
     for (const u of unresolved) {
-      html += `<div class="list-row"><span style="flex:1;min-width:0">${escapeHTML(weekdayShort(u.date))} ${escapeHTML(shortDateLabel(u.date))} · ${escapeHTML(cap(u.meal))} — ${escapeHTML(u.recipe_name || "")}</span>`
-        + resolveButtonsHTML(u.week_start, u.date, u.meal)
+      html += `<div class="list-row unresolved-row"><div>${escapeHTML(weekdayShort(u.date))} ${escapeHTML(shortDateLabel(u.date))} · ${escapeHTML(cap(u.meal))} — ${escapeHTML(u.recipe_name || "")}</div>`
+        + `<div class="resolve-actions">${resolveButtonsHTML(u.week_start, u.date, u.meal)}</div>`
         + `</div>`;
     }
     html += `</div>`;
@@ -338,10 +338,14 @@ function todayMealHTML(m) {
       : "Leftovers";
     return `<div class="list"><div class="list-row"><span style="flex:1">${escapeHTML(src)}</span><span class="muted">Decided</span></div></div>`;
   }
-  // Recipe slot.
+  // Recipe slot. When unresolved, the name block takes its own line and
+  // the resolve pills sit in a wrapping row below it — the old layout
+  // squeezed the pills beside the name and they overlapped the label at
+  // phone width. Resolved slots keep the name + Clear side by side.
   const r = m.recipe;
   const name = escapeHTML(m.recipe_name || (r && r.name) || "");
-  let html = `<div class="list"><div class="list-row" style="flex-wrap:wrap"><div style="flex:1;min-width:12rem">`
+  const nameStyle = m.resolution ? "flex:1;min-width:12rem" : "flex:1 1 100%;min-width:0";
+  let html = `<div class="list"><div class="list-row" style="flex-wrap:wrap"><div style="${nameStyle}">`
     + `<strong>${name}</strong>`;
   const bits = [];
   if (r && r.cook_minutes) bits.push(`${r.cook_minutes} min`);
@@ -355,8 +359,9 @@ function todayMealHTML(m) {
   if (m.resolution) {
     html += `<button class="btn btn-ghost" type="button" data-resolve="null" data-week="${escapeHTML(m.week_start || "")}" data-date="${escapeHTML(m.date)}" data-meal="${escapeHTML(m.meal)}">Clear</button>`;
   } else {
-    html += resolveButtonsHTML(m.week_start || "", m.date, m.meal);
-    html += `<button class="btn btn-ghost" type="button" data-cook-else="${escapeHTML(m.date)}" data-meal="${escapeHTML(m.meal)}">Cook something else</button>`;
+    html += `<div class="resolve-actions" style="flex:1 1 100%">`
+      + resolveButtonsHTML(m.week_start || "", m.date, m.meal)
+      + `<button class="btn btn-ghost" type="button" data-cook-else="${escapeHTML(m.date)}" data-meal="${escapeHTML(m.meal)}">Cook something else</button></div>`;
   }
   html += `</div>`;
   if (r && ((r.ingredients && r.ingredients.length > 0) || (r.steps && r.steps.length > 0))) {
@@ -661,8 +666,8 @@ async function renderPlan(ctx) {
   const weekEnd = addDaysStr(weekStart, 6);
   let html = noticeHTML(ctx)
     + `<h2 class="section-head">Week of ${shortDateLabel(weekStart)} – ${shortDateLabel(weekEnd)}</h2>`
-    + `<p><button class="btn ${ctx.planView === "this" ? "btn-primary" : "btn-ghost"}" type="button" data-week-view="this">This week</button> `
-    + `<button class="btn ${ctx.planView === "next" ? "btn-primary" : "btn-ghost"}" type="button" data-week-view="next">Next week</button></p>`;
+    + `<div class="segmented"><button class="btn ${ctx.planView === "this" ? "btn-primary" : "btn-ghost"}" type="button" data-week-view="this">This week</button>`
+    + `<button class="btn ${ctx.planView === "next" ? "btn-primary" : "btn-ghost"}" type="button" data-week-view="next">Next week</button></div>`;
 
   if (ctx.planWarnings.length > 0) {
     html += `<div class="list">` + ctx.planWarnings.map((w) =>
@@ -691,16 +696,16 @@ async function renderPlan(ctx) {
       const style = d && d.state === "recipe" && d.resolution
         ? "background:var(--card);border:1px solid var(--border);border-radius:0.6rem;padding:0.5rem 0.25rem;min-height:3.5rem;font:inherit;font-size:0.8rem;text-align:left;cursor:pointer;color:var(--ink-muted)"
         : "background:var(--card);border:1px solid var(--border);border-radius:0.6rem;padding:0.5rem 0.25rem;min-height:3.5rem;font:inherit;font-size:0.8rem;text-align:left;cursor:pointer;color:var(--ink)";
-      html += `<button type="button" style="${style}" data-cell-date="${escapeHTML(date)}" data-cell-meal="${escapeHTML(meal)}">${escapeHTML(label)}${d && d.resolution ? `<br><span class="muted">${escapeHTML(resolutionLabel(d.resolution))}</span>` : ""}</button>`;
+      html += `<button type="button" style="${style}" data-cell-date="${escapeHTML(date)}" data-cell-meal="${escapeHTML(meal)}"><span class="plan-cell-label">${escapeHTML(label)}</span>${d && d.resolution ? `<br><span class="muted">${escapeHTML(resolutionLabel(d.resolution))}</span>` : ""}</button>`;
     }
     html += `</div>`;
   }
 
   const hiddenMeals = MEALS.filter((m) => !shownMeals.includes(m));
   if (hiddenMeals.length > 0) {
-    html += `<h3 class="section-head">Add a meal to this week</h3><p>`
-      + hiddenMeals.map((m) => `<button class="btn btn-ghost" type="button" data-add-meal="${escapeHTML(m)}">Plan ${escapeHTML(m)}</button> `).join("")
-      + `</p><p class="muted">Planning the first day adds the meal’s row — the other days fill in from there.</p>`;
+    html += `<h3 class="section-head">Add a meal to this week</h3><div class="segmented">`
+      + hiddenMeals.map((m) => `<button class="btn btn-ghost" type="button" data-add-meal="${escapeHTML(m)}">Plan ${escapeHTML(m)}</button>`).join("")
+      + `</div><p class="muted">Planning the first day adds the meal’s row — the other days fill in from there.</p>`;
   }
 
   if (ctx.planView === "this") {
@@ -952,7 +957,7 @@ async function renderRecipes(ctx) {
     + `<h2 class="section-head">Recipes</h2>`
     + `<p><button class="btn btn-primary" type="button" id="new-recipe">New recipe</button></p>`;
   if (active.length === 0) {
-    html += `<div class="empty-state"><p>No recipes yet — add your first one.</p></div>`;
+    html += `<div class="empty-state"><h2>No recipes yet</h2><p>Add your first one — a name alone is enough to start.</p></div>`;
   } else {
     html += `<div class="list">` + active.map((r) =>
       `<div class="list-row" data-recipe-row="${escapeHTML(r.id)}" style="cursor:pointer"><span style="flex:1;min-width:0"><strong>${escapeHTML(r.name)}</strong>`
@@ -1101,21 +1106,26 @@ async function renderRecipeDetail(ctx) {
 
 function ingredientRowHTML(ing) {
   const i = ing || {};
-  return `<div class="list-row rf-ing-row" style="flex-wrap:wrap">`
-    + `<input class="field ing-name" style="flex:2;min-width:8rem" type="text" placeholder="Ingredient" autocomplete="off" value="${escapeHTML(i.name || "")}">`
-    + `<input class="field ing-qty" style="width:4.5rem" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i.quantity ?? ""}">`
-    + `<input class="field ing-unit" style="width:4rem" type="text" placeholder="Unit" autocomplete="off" value="${escapeHTML(i.unit || "")}">`
-    + `<input class="field ing-prep" style="flex:1;min-width:8rem" type="text" placeholder="Prep note" autocomplete="off" value="${escapeHTML(i.prep_note || "")}">`
-    + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div>`;
+  // Two lines: name + Remove on top, qty / unit / prep note below.
+  // The old single wrapped row squeezed the name field and let Remove
+  // land wherever the wrap fell.
+  return `<div class="list-row rf-ing-row">`
+    + `<div class="rf-line"><input class="field ing-name" type="text" placeholder="Ingredient" autocomplete="off" value="${escapeHTML(i.name || "")}">`
+    + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div>`
+    + `<div class="rf-line"><input class="field ing-qty" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i.quantity ?? ""}">`
+    + `<input class="field ing-unit" type="text" placeholder="Unit" autocomplete="off" value="${escapeHTML(i.unit || "")}">`
+    + `<input class="field ing-prep" type="text" placeholder="Prep note" autocomplete="off" value="${escapeHTML(i.prep_note || "")}"></div></div>`;
 }
 function stepRowHTML(step) {
   const s = step || {};
-  return `<div class="list-row rf-step-row" style="flex-wrap:wrap">`
-    + `<input class="field step-text" style="flex:2;min-width:10rem" type="text" placeholder="Step" autocomplete="off" value="${escapeHTML(s.text || "")}">`
-    + `<input class="field step-duration" style="width:4.5rem" type="number" min="0" step="1" inputmode="numeric" placeholder="Min" value="${s.duration_minutes ?? ""}">`
-    + `<button class="btn btn-ghost rf-up" type="button" title="Move up">↑</button>`
-    + `<button class="btn btn-ghost rf-down" type="button" title="Move down">↓</button>`
-    + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div>`;
+  // Two lines: step + minutes on top, reorder + Remove below, right
+  // aligned. The old row wrapped mid-controls at phone width.
+  return `<div class="list-row rf-step-row">`
+    + `<div class="rf-line"><input class="field step-text" type="text" placeholder="Step" autocomplete="off" value="${escapeHTML(s.text || "")}">`
+    + `<input class="field step-duration" type="number" min="0" step="1" inputmode="numeric" placeholder="Min" value="${s.duration_minutes ?? ""}"></div>`
+    + `<div class="rf-line rf-step-actions"><button class="btn btn-ghost btn-icon rf-up" type="button" title="Move up">↑</button>`
+    + `<button class="btn btn-ghost btn-icon rf-down" type="button" title="Move down">↓</button>`
+    + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div></div>`;
 }
 
 async function renderRecipeForm(ctx) {
@@ -1420,8 +1430,8 @@ async function renderShop(ctx) {
 
   let html = noticeHTML(ctx)
     + `<h2 class="section-head">Shop — week of ${shortDateLabel(weekStart)} – ${shortDateLabel(weekEnd)}</h2>`
-    + `<p><button class="btn ${ctx.shopView === "this" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="this">This week</button> `
-    + `<button class="btn ${ctx.shopView === "next" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="next">Next week</button></p>`;
+    + `<div class="segmented"><button class="btn ${ctx.shopView === "this" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="this">This week</button>`
+    + `<button class="btn ${ctx.shopView === "next" ? "btn-primary" : "btn-ghost"}" type="button" data-shop-view="next">Next week</button></div>`;
 
   if (!run) {
     if (activeOtherWeek) {
@@ -1835,7 +1845,7 @@ async function renderPantry(ctx) {
     + `<h2 class="section-head">Pantry</h2>`
     + `<p class="muted">Out puts the item back on the shopping list.</p>`;
   if (ctx.pantryItems.length === 0) {
-    html += `<div class="empty-state"><p>No pantry staples yet — add the things you usually keep on hand.</p></div>`;
+    html += `<div class="empty-state"><h2>No pantry staples yet</h2><p>Add the things you usually keep on hand.</p></div>`;
   } else {
     let currentCat = null;
     for (const it of ctx.pantryItems) {

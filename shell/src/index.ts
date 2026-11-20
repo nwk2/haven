@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.0"; // Shop derivation + Pantry (Batch 4)
+const VERSION = "0.3.1"; // UI polish pass (0.3.1)
 
 export interface Env {
   ASSETS: Fetcher;
