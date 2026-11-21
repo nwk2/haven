@@ -77,6 +77,40 @@ function mondayOf(d: Date): Date {
 function addDays(d: Date, n: number): Date {
   return new Date(d.getTime() + n * DAY_MS);
 }
+
+// --- Timezone note ---
+// The server has no clock that matches the user's: every "today" derived
+// from new Date() here is a UTC calendar date, while the client sends
+// LOCAL calendar dates (its date inputs default to localTodayStr()).
+// A plain YYYY-MM-DD string round-trips through parseDate/fmtDate
+// unchanged, so lookups keyed on a client-supplied date are exact. But
+// any comparison of a client-supplied date against the server's "now"
+// must allow for the client's unknown offset (UTC-12..UTC+14): the
+// latest date that can be "today" anywhere is UTC-today + 1 day, the
+// earliest UTC-today - 1 day. Sites that compare against now use the
+// bounds below, never fmtDate(new Date()) directly.
+// Latest calendar date that can be "today" for a client anywhere.
+export function maxLocalToday(now = new Date()): string {
+  return fmtDate(addDays(now, 1));
+}
+// A run_date is in the future only if it is past the latest possible
+// local "today" — a date 2+ days ahead of UTC-today is future everywhere.
+export function isRunDateValid(runDateRaw: string, now = new Date()): boolean {
+  return Boolean(parseDate(runDateRaw)) && runDateRaw <= maxLocalToday(now);
+}
+// Mondays that can be "this week" or "next week" for a client in any
+// timezone: local today is UTC-today - 1, UTC-today, or UTC-today + 1,
+// so this week's Monday is mondayOf(now-1d), mondayOf(now), or
+// mondayOf(now+1d), and next week's is each of those + 7 days.
+export function allowedWeekStarts(now = new Date()): Set<string> {
+  const out = new Set<string>();
+  for (const off of [-1, 0, 1]) {
+    const m = fmtDate(mondayOf(addDays(now, off)));
+    out.add(m);
+    out.add(fmtDate(addDays(parseDate(m)!, 7)));
+  }
+  return out;
+}
 function isMeal(v: unknown): v is Meal {
   return typeof v === "string" && (MEALS as readonly string[]).includes(v);
 }
@@ -1146,11 +1180,18 @@ async function getToday(request: Request, env: unknown, ctx: AuthContext | null)
   return json({ ok: true, date: todayStr, week_start: weekStart, meals, unresolved });
 }
 
-async function getNextMeal(_request: Request, env: unknown, ctx: AuthContext | null) {
+async function getNextMeal(request: Request, env: unknown, ctx: AuthContext | null) {
   const auth = requireHousehold(ctx);
   if (auth instanceof Response) return auth;
   const k = env as KitchenEnv;
-  const todayStr = fmtDate(new Date());
+  // The client passes its local date (?date=); without it the server can
+  // only fall back to its own UTC today, which is yesterday for a UTC+
+  // client in the early morning — an unresolved slot from local
+  // yesterday would then surface as the "next" meal.
+  const param = new URL(request.url).searchParams.get("date");
+  const today = param ? parseDate(param) : new Date();
+  if (!today) return err("invalid_date", 400);
+  const todayStr = fmtDate(today);
   const row: any = await k.DB.prepare(
     "SELECT d.date AS date, d.meal AS meal, r.name AS recipe_name, r.cook_minutes AS cook_minutes " +
       "FROM cook_plan_days d JOIN cook_week_plans p ON p.id = d.plan_id " +
@@ -1761,9 +1802,7 @@ async function generateShop(request: Request, env: unknown, ctx: AuthContext | n
   const weekDate = parseDate(String(body.week_start || ""));
   if (!weekDate || weekDate.getUTCDay() !== 1) return err("invalid_week", 400);
   const weekStart = fmtDate(weekDate);
-  const thisMonday = fmtDate(mondayOf(new Date()));
-  const nextMonday = fmtDate(addDays(mondayOf(new Date()), 7));
-  if (weekStart !== thisMonday && weekStart !== nextMonday) return err("invalid_week", 400);
+  if (!allowedWeekStarts().has(weekStart)) return err("invalid_week", 400);
   const active = await activeRun(k, auth.hid);
   if (active && String(active.week_start) !== weekStart) return err("active_run_exists", 409);
   const derived = await deriveFromPlan(k, auth.hid, weekStart);
@@ -1943,8 +1982,7 @@ async function finishShopRun(request: Request, env: unknown, ctx: AuthContext | 
   if (!active) return err("no_active_run", 404);
   const body = await readBody(request);
   const runDateRaw = typeof body.run_date === "string" && body.run_date ? body.run_date : fmtDate(new Date());
-  const runDate = parseDate(runDateRaw);
-  if (!runDate || runDateRaw > fmtDate(new Date())) return err("invalid_run_date", 400);
+  if (!isRunDateValid(runDateRaw)) return err("invalid_run_date", 400);
   const store =
     typeof body.store === "string" && body.store.trim() ? body.store.trim().slice(0, 100) : null;
   // Prices apply to checked lines only; a price must be a finite

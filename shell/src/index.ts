@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.2"; // Ingredient category picker (0.3.2)
+const VERSION = "0.3.3"; // Run-date timezone fix (0.3.3)
 
 export interface Env {
   ASSETS: Fetcher;

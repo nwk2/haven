@@ -112,7 +112,7 @@ async function api(path, method = "GET", body = null) {
 // --- Widget: next unrecorded planned meal (spec §4) ---
 export async function widget() {
   try {
-    const { res, data } = await api("/api/kitchen/next-meal");
+    const { res, data } = await api(`/api/kitchen/next-meal?date=${localTodayStr()}`);
     if (!res.ok || !data.ok || !data.next) return null;
     const n = data.next;
     let body = `${cap(n.meal)} · ${n.recipe_name} — ${weekdayLong(n.date)}, ${shortDateLabel(n.date)}`;
