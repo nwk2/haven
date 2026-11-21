@@ -428,9 +428,16 @@ function wireHouseholdPanel(hh, me) {
   const leaveBtn = document.getElementById("leave-household");
   if (leaveBtn) {
     leaveBtn.addEventListener("click", async () => {
+      // Sole member: leaving deletes the household and all its kitchen
+      // data (0.3.4 cascade) — the dialog must say so, not claim the
+      // plans and shopping "stay with the remaining members" when there
+      // are none. Multi-member: the existing wording stands.
+      const soleMember = hh.members.length === 1;
       const yes = await confirmPrompt({
         title: "Leave household?",
-        message: `Leaving removes you from ${hh.household.name}. The household’s plans and shopping stay with the remaining members.`,
+        message: soleMember
+          ? `You’re the only member — leaving deletes ${hh.household.name} and all its plans and shopping.`
+          : `Leaving removes you from ${hh.household.name}. The household’s plans and shopping stay with the remaining members.`,
         confirmLabel: "Leave",
       });
       if (!yes) return;

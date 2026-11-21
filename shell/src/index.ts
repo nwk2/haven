@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.4"; // Run-date timezone fix (0.3.3); leave cascades to kitchen data (0.3.4)
+const VERSION = "0.3.5"; // Leave dialog wording for sole members (0.3.5)
 
 export interface Env {
   ASSETS: Fetcher;
