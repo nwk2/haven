@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.3"; // Run-date timezone fix (0.3.3)
+const VERSION = "0.3.4"; // Run-date timezone fix (0.3.3); leave cascades to kitchen data (0.3.4)
 
 export interface Env {
   ASSETS: Fetcher;
@@ -290,14 +290,36 @@ export default {
           ]);
         }
         if (results.length === 0) {
-          // Last member leaving: the two deletes are independent (same
-          // known ids), so they run as one batch round-trip; all-or-nothing
-          // means a failure cannot leave an empty household behind.
+          // Last member leaving: the household goes with them, and so does
+          // all of its kitchen data — otherwise recipes, plans, runs and
+          // pantry rows would survive as orphans (no household to view them
+          // under). Every statement is independent (same known household
+          // id), so they run as one batch round-trip; all-or-nothing means
+          // a failure cannot leave a half-deleted household behind.
+          // Order matters: the subquery deletes must run before the tables
+          // they read from are deleted.
+          const hid = ctx.household.id;
           await env.DB.batch([
+            env.DB.prepare("DELETE FROM shop_purchases WHERE run_id IN (SELECT id FROM shop_runs WHERE household_id = ?)")
+              .bind(hid),
+            env.DB.prepare("DELETE FROM shop_list_items WHERE run_id IN (SELECT id FROM shop_runs WHERE household_id = ?)")
+              .bind(hid),
+            env.DB.prepare("DELETE FROM shop_runs WHERE household_id = ?").bind(hid),
+            env.DB.prepare("DELETE FROM shop_pantry_items WHERE household_id = ?").bind(hid),
+            env.DB.prepare("DELETE FROM cook_plan_days WHERE plan_id IN (SELECT id FROM cook_week_plans WHERE household_id = ?)")
+              .bind(hid),
+            env.DB.prepare("DELETE FROM cook_week_plans WHERE household_id = ?").bind(hid),
+            env.DB.prepare("DELETE FROM cook_recipe_ingredients WHERE recipe_id IN (SELECT id FROM cook_recipes WHERE household_id = ?)")
+              .bind(hid),
+            env.DB.prepare("DELETE FROM cook_recipe_steps WHERE recipe_id IN (SELECT id FROM cook_recipes WHERE household_id = ?)")
+              .bind(hid),
+            env.DB.prepare("DELETE FROM cook_events WHERE household_id = ?").bind(hid),
+            env.DB.prepare("DELETE FROM shop_items WHERE household_id = ?").bind(hid),
+            env.DB.prepare("DELETE FROM cook_recipes WHERE household_id = ?").bind(hid),
             env.DB.prepare("DELETE FROM household_members WHERE household_id = ? AND user_id = ?")
-              .bind(ctx.household.id, ctx.user.id),
+              .bind(hid, ctx.user.id),
             env.DB.prepare("DELETE FROM households WHERE id = ?")
-              .bind(ctx.household.id),
+              .bind(hid),
           ]);
         } else {
           await env.DB.prepare("DELETE FROM household_members WHERE household_id = ? AND user_id = ?")
