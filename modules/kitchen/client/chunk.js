@@ -57,6 +57,13 @@ function shortDateLabel(dateStr) {
   const d = parseLocalDate(dateStr);
   return d ? `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}` : dateStr;
 }
+// "Friday, 21 Nov 2026" — the app's date format, shown wherever a
+// native date input would otherwise render in the browser's locale
+// (the finish dialog showed "11/21/2026" on a US-locale browser).
+function longDateLabel(dateStr) {
+  const d = parseLocalDate(dateStr);
+  return d ? `${WEEKDAY_LONG[d.getDay()]}, ${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}` : dateStr;
+}
 function cap(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
@@ -71,7 +78,7 @@ function lastCookedLabel(recipe) {
 }
 function resolutionLabel(resolution) {
   return resolution === "cooked" ? "Cooked"
-    : resolution === "eat_out" ? "Ate out"
+    : resolution === "eat_out" ? "Did not cook"
     : resolution === "leftovers" ? "Leftovers"
     : resolution === "skipped" ? "Skipped" : "";
 }
@@ -115,8 +122,8 @@ export async function widget() {
     const { res, data } = await api(`/api/kitchen/next-meal?date=${localTodayStr()}`);
     if (!res.ok || !data.ok || !data.next) return null;
     const n = data.next;
-    let body = `${cap(n.meal)} · ${n.recipe_name} — ${weekdayLong(n.date)}, ${shortDateLabel(n.date)}`;
-    if (n.cook_minutes) body += ` · ${n.cook_minutes} min`;
+    // No duration line: recipes no longer record a cook time (0.4.0).
+    const body = `${cap(n.meal)} · ${n.recipe_name} — ${weekdayLong(n.date)}, ${shortDateLabel(n.date)}`;
     return { title: "Next meal", body, href: "/kitchen/today" };
   } catch {
     // No token, no localStorage, fetch failed — the widget hides.
@@ -149,6 +156,7 @@ export function mount(el) {
     tab,
     gen,
     notice: "",
+    success: "",
     // Today
     todayData: null,
     planDays: [],
@@ -196,7 +204,7 @@ export function mount(el) {
       + `<p>Something went wrong — check your connection and try again.</p>`
       + `<p><button class="btn btn-primary" type="button" id="kitchen-retry">Try again</button></p></div>`;
     const retry = ctx.content.querySelector("#kitchen-retry");
-    if (retry) retry.addEventListener("click", () => { ctx.notice = ""; void render(); });
+    if (retry) retry.addEventListener("click", () => { ctx.notice = ""; ctx.success = ""; void render(); });
   });
 }
 
@@ -205,8 +213,13 @@ export function mount(el) {
 function isCurrent(ctx) {
   return ctx.gen === mountSeq;
 }
+// Errors render red, successes green (0.4.0): copy-forward and
+// finish-run confirmations used to render in the error colour.
 function noticeHTML(ctx) {
-  return ctx.notice ? `<p class="error">${escapeHTML(ctx.notice)}</p>` : "";
+  let html = "";
+  if (ctx.notice) html += `<p class="error">${escapeHTML(ctx.notice)}</p>`;
+  if (ctx.success) html += `<p class="success">${escapeHTML(ctx.success)}</p>`;
+  return html;
 }
 function sessionEndedHTML() {
   return `<div class="empty-state"><h2>Your session ended</h2>`
@@ -222,7 +235,7 @@ function loadErrorHTML(ctx, label) {
 }
 function wireRetry(ctx, rerender) {
   const btn = ctx.content.querySelector("[data-kitchen-retry]");
-  if (btn) btn.addEventListener("click", () => { ctx.notice = ""; void rerender(); });
+  if (btn) btn.addEventListener("click", () => { ctx.notice = ""; ctx.success = ""; void rerender(); });
 }
 // Busy state, the 0.1.8 pattern: disable + in-flight label, restored on failure.
 function busy(btn, label) {
@@ -242,7 +255,6 @@ function friendlyError(data) {
     no_planned_recipe: "There’s no planned recipe to change here.",
     leftover_slot_taken: "Tomorrow’s slot is already planned.",
     recipe_name_required: "Give the recipe a name first.",
-    invalid_cook_minutes: "Cook time must be a positive number of minutes.",
     invalid_servings: "Servings must be a positive number.",
     recipe_not_found: "That recipe no longer exists.",
     invalid_leftover_source: "Pick an earlier planned recipe as the leftovers source.",
@@ -347,11 +359,8 @@ function todayMealHTML(m) {
   const nameStyle = m.resolution ? "flex:1;min-width:12rem" : "flex:1 1 100%;min-width:0";
   let html = `<div class="list"><div class="list-row" style="flex-wrap:wrap"><div style="${nameStyle}">`
     + `<strong>${name}</strong>`;
-  const bits = [];
-  if (r && r.cook_minutes) bits.push(`${r.cook_minutes} min`);
-  if (r && r.usual_cook_name) bits.push(`usually ${escapeHTML(r.usual_cook_name)}`);
-  if (m.servings) bits.push(`${m.servings} servings`);
-  if (bits.length > 0) html += `<br><span class="muted">${bits.join(" · ")}</span>`;
+  // No cook time or "usually X" (0.4.0): those fields are gone.
+  if (m.servings) html += `<br><span class="muted">${m.servings} servings</span>`;
   if (m.resolution) {
     html += `<br><span class="muted">${escapeHTML(resolutionLabel(m.resolution))}</span>`;
   }
@@ -364,8 +373,9 @@ function todayMealHTML(m) {
       + `<button class="btn btn-ghost" type="button" data-cook-else="${escapeHTML(m.date)}" data-meal="${escapeHTML(m.meal)}">Cook something else</button></div>`;
   }
   html += `</div>`;
-  if (r && ((r.ingredients && r.ingredients.length > 0) || (r.steps && r.steps.length > 0))) {
-    html += `<details style="padding:0.5rem 1rem"><summary>Cooking view — ingredients &amp; steps</summary>`;
+  // Cooking view: ingredients, then the instructions as written.
+  if (r && ((r.ingredients && r.ingredients.length > 0) || r.instructions)) {
+    html += `<details style="padding:0.5rem 1rem"><summary>Cooking view — ingredients &amp; instructions</summary>`;
     if (r.ingredients && r.ingredients.length > 0) {
       html += `<h3 class="section-head">Ingredients</h3><ul>`;
       for (const ing of r.ingredients) {
@@ -374,12 +384,8 @@ function todayMealHTML(m) {
       }
       html += `</ul>`;
     }
-    if (r.steps && r.steps.length > 0) {
-      html += `<h3 class="section-head">Steps</h3><ol>`;
-      for (const s of r.steps) {
-        html += `<li>${escapeHTML(s.text)}${s.duration_minutes ? ` <span class="muted">(${s.duration_minutes} min)</span>` : ""}</li>`;
-      }
-      html += `</ol>`;
+    if (r.instructions) {
+      html += `<h3 class="section-head">Instructions</h3><p style="white-space:pre-wrap">${escapeHTML(r.instructions)}</p>`;
     }
     html += `</details>`;
   }
@@ -410,23 +416,29 @@ function wireToday(ctx, todayStr, weekStart) {
         }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t record that — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t record that — check your connection and try again.";
         void renderToday(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderToday(ctx);
         return;
       }
       // Mark cooked: offer the leftovers shortcut for tomorrow's same meal.
       if (resolution === "cooked") {
         const slot = (ctx.todayData.meals || []).find((x) => x.date === date && x.meal === meal);
-        const recipeName = slot ? (slot.recipe_name || "") : "";
-        await offerLeftoverTomorrow(ctx, week, date, meal, recipeName);
+        // The slot's recipe_name can be empty (it comes from the plan
+        // row, not the recipe); fall back to the recipe detail, then
+        // the library, so the prompt never shows a blank name.
+        const recipeName = (slot && (slot.recipe_name || (slot.recipe && slot.recipe.name))) || "";
+        const fallback = !recipeName && slot && slot.recipe_id
+          ? ((ctx.recipes || []).find((r) => r.id === slot.recipe_id) || {}).name || ""
+          : "";
+        await offerLeftoverTomorrow(ctx, week, date, meal, recipeName || fallback);
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderToday(ctx);
     });
   });
@@ -558,7 +570,7 @@ function openCookSomethingElse(ctx, weekStart, slot) {
         return;
       }
       close();
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderToday(ctx);
     });
   });
@@ -591,7 +603,7 @@ function openCookSomethingElse(ctx, weekStart, slot) {
         return;
       }
       close();
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderToday(ctx);
     });
   });
@@ -675,38 +687,29 @@ async function renderPlan(ctx) {
     ).join("") + `</div>`;
   }
 
-  const shownMeals = MEALS.filter((m) => ctx.planDays.some((d) => d.meal === m));
-  for (const meal of shownMeals) {
-    const days = ctx.planDays.filter((d) => d.meal === meal);
-    const plannedDates = new Set(days.map((d) => d.date));
-    const blank = 7 - plannedDates.size;
-    html += `<h3 class="section-head">${cap(meal)}${blank > 0 ? ` <span class="muted">— ${blank} day${blank === 1 ? "" : "s"} not planned yet</span>` : ""}</h3>`;
-    html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0.25rem;margin-bottom:0.25rem">`;
-    for (let i = 0; i < 7; i++) {
-      const date = addDaysStr(weekStart, i);
-      html += `<div class="muted" style="text-align:center;font-size:0.8rem">${weekdayShort(date)} ${parseLocalDate(date).getDate()}</div>`;
+  // Day list (0.4.0): one row per day — day label, its planned meals
+  // (or "Nothing planned yet"), and a Plan button for that day. Only
+  // planned meals show; there is no seven-column grid of narrow cells
+  // to aim at, and no always-open row of meal pills.
+  html += `<div class="list">`;
+  for (let i = 0; i < 7; i++) {
+    const date = addDaysStr(weekStart, i);
+    const days = ctx.planDays.filter((d) => d.date === date);
+    html += `<div class="list-row plan-day-row"><div style="flex:1;min-width:0">`
+      + `<strong>${escapeHTML(weekdayLong(date))}, ${escapeHTML(shortDateLabel(date))}</strong>`;
+    if (days.length === 0) {
+      html += `<br><span class="muted">Nothing planned yet</span>`;
+    } else {
+      for (const d of days) {
+        const label = d.state === "recipe" ? (d.recipe_name || "")
+          : d.state === "eat_out" ? "Eat out" : "Leftovers";
+        html += `<br><button class="text-button plan-day-meal" type="button" data-day-meal="${escapeHTML(date)}" data-meal="${escapeHTML(d.meal)}">${escapeHTML(cap(d.meal))} — ${escapeHTML(label)}${d.servings ? ` · ${d.servings} servings` : ""}</button>`
+          + (d.resolution ? `<br><span class="muted">${escapeHTML(resolutionLabel(d.resolution))}</span>` : "");
+      }
     }
-    html += `</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0.25rem">`;
-    for (let i = 0; i < 7; i++) {
-      const date = addDaysStr(weekStart, i);
-      const d = days.find((x) => x.date === date);
-      const label = !d ? "+"
-        : d.state === "recipe" ? (d.recipe_name || "")
-        : d.state === "eat_out" ? "Eat out" : "Leftovers";
-      const style = d && d.state === "recipe" && d.resolution
-        ? "background:var(--card);border:1px solid var(--border);border-radius:0.6rem;padding:0.5rem 0.25rem;min-height:3.5rem;font:inherit;font-size:0.8rem;text-align:left;cursor:pointer;color:var(--ink-muted)"
-        : "background:var(--card);border:1px solid var(--border);border-radius:0.6rem;padding:0.5rem 0.25rem;min-height:3.5rem;font:inherit;font-size:0.8rem;text-align:left;cursor:pointer;color:var(--ink)";
-      html += `<button type="button" style="${style}" data-cell-date="${escapeHTML(date)}" data-cell-meal="${escapeHTML(meal)}"><span class="plan-cell-label">${escapeHTML(label)}</span>${d && d.resolution ? `<br><span class="muted">${escapeHTML(resolutionLabel(d.resolution))}</span>` : ""}</button>`;
-    }
-    html += `</div>`;
+    html += `</div><button class="btn btn-ghost" type="button" data-plan-day="${escapeHTML(date)}">Plan</button></div>`;
   }
-
-  const hiddenMeals = MEALS.filter((m) => !shownMeals.includes(m));
-  if (hiddenMeals.length > 0) {
-    html += `<h3 class="section-head">Add a meal to this week</h3><div class="segmented">`
-      + hiddenMeals.map((m) => `<button class="btn btn-ghost" type="button" data-add-meal="${escapeHTML(m)}">Plan ${escapeHTML(m)}</button>`).join("")
-      + `</div><p class="muted">Planning the first day adds the meal’s row — the other days fill in from there.</p>`;
-  }
+  html += `</div>`;
 
   if (ctx.planView === "this") {
     html += `<p><button class="btn btn-primary" type="button" id="copy-forward">Copy this week to next week</button></p>`;
@@ -716,25 +719,56 @@ async function renderPlan(ctx) {
   wirePlan(ctx, weekStart);
 }
 
+// Meal chooser for one day: which meal to plan, showing what each
+// already holds. Tapping a meal opens the slot picker for it.
+function openDayPicker(ctx, weekStart, dateStr) {
+  const body = document.createElement("div");
+  let html = `<p class="muted">${escapeHTML(weekdayLong(dateStr))}, ${escapeHTML(shortDateLabel(dateStr))}</p><div class="list">`;
+  for (const meal of MEALS) {
+    const d = ctx.planDays.find((x) => x.date === dateStr && x.meal === meal);
+    const state = !d ? "Not planned yet"
+      : d.state === "recipe" ? (d.recipe_name || "")
+      : d.state === "eat_out" ? "Eat out" : "Leftovers";
+    html += `<div class="list-row"><span style="flex:1;min-width:0"><strong>${escapeHTML(cap(meal))}</strong>`
+      + `<br><span class="muted">${escapeHTML(state)}${d && d.servings ? ` · ${d.servings} servings` : ""}</span></span>`
+      + `<button class="btn btn-ghost" type="button" data-day-pick-meal="${escapeHTML(meal)}">${d ? "Change" : "Plan"}</button></div>`;
+  }
+  html += `</div>`;
+  body.innerHTML = html;
+  const close = openSheet({
+    title: `Plan ${weekdayLong(dateStr)}`,
+    body,
+    actions: [{ label: "Close", kind: "ghost" }],
+  });
+  body.querySelectorAll("[data-day-pick-meal]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const meal = btn.getAttribute("data-day-pick-meal");
+      const existing = ctx.planDays.find((d) => d.date === dateStr && d.meal === meal);
+      close();
+      openSlotPicker(ctx, weekStart, dateStr, meal, existing || null);
+    });
+  });
+}
+
 function wirePlan(ctx, weekStart) {
   ctx.content.querySelectorAll("[data-week-view]").forEach((btn) => {
     btn.addEventListener("click", () => {
       ctx.planView = btn.getAttribute("data-week-view");
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderPlan(ctx);
     });
   });
-  ctx.content.querySelectorAll("[data-cell-date]").forEach((btn) => {
+  ctx.content.querySelectorAll("[data-plan-day]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const date = btn.getAttribute("data-cell-date");
-      const meal = btn.getAttribute("data-cell-meal");
-      const existing = ctx.planDays.find((d) => d.date === date && d.meal === meal);
-      openSlotPicker(ctx, weekStart, date, meal, existing || null);
+      openDayPicker(ctx, weekStart, btn.getAttribute("data-plan-day"));
     });
   });
-  ctx.content.querySelectorAll("[data-add-meal]").forEach((btn) => {
+  ctx.content.querySelectorAll("[data-day-meal]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      openSlotPicker(ctx, weekStart, weekStart, btn.getAttribute("data-add-meal"), null);
+      const date = btn.getAttribute("data-day-meal");
+      const meal = btn.getAttribute("data-meal");
+      const existing = ctx.planDays.find((d) => d.date === date && d.meal === meal);
+      openSlotPicker(ctx, weekStart, date, meal, existing || null);
     });
   });
   const copyBtn = ctx.content.querySelector("#copy-forward");
@@ -746,17 +780,18 @@ function wirePlan(ctx, weekStart) {
         ({ res, data } = await api("/api/kitchen/plan/copy-forward", "POST", { from_week_start: weekStart }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t copy the week — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t copy the week — check your connection and try again.";
         void renderPlan(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderPlan(ctx);
         return;
       }
-      ctx.notice = `Copied ${data.copied} slot${data.copied === 1 ? "" : "s"}, skipped ${data.skipped} already planned.`;
+      ctx.success = `Copied ${data.copied} slot${data.copied === 1 ? "" : "s"}, skipped ${data.skipped} already planned.`;
+      ctx.notice = "";
       void renderPlan(ctx);
     });
   }
@@ -765,16 +800,32 @@ function wirePlan(ctx, weekStart) {
 // Slot picker sheet for one (date, meal) cell.
 function openSlotPicker(ctx, weekStart, dateStr, meal, existing) {
   const body = document.createElement("div");
-  const warningsByRecipe = new Map((ctx.planWarnings || []).map((w) => [w.recipe_id, w.detail]));
+  // The "cooked last week" warning still comes from the server
+  // (planWarnings, computed from the saved plan); the duplicate
+  // warning is LIVE here (0.4.0) — counted from the plan as it
+  // stands, so it shows before saving instead of only after.
+  const recentWarnings = new Map(
+    (ctx.planWarnings || []).filter((w) => w.type === "recent").map((w) => [w.recipe_id, w.detail]),
+  );
   // "Not cooked in a while": never cooked, or last cooked 21+ days before this week.
   const staleCutoff = addDaysStr(weekStart, -21);
   const notAWhile = ctx.recipes.filter((r) => !r.last_cooked || r.last_cooked <= staleCutoff);
   const recent = ctx.recipes.filter((r) => r.last_cooked && r.last_cooked > staleCutoff);
 
   const recipeButton = (r) => {
-    const warn = warningsByRecipe.get(r.id);
+    // Live duplicate count: other slots this week already holding
+    // this recipe (the slot being edited doesn't count against
+    // itself — re-planning the same recipe there is not a repeat).
+    const dupCount = (ctx.planDays || []).filter(
+      (d) => d.state === "recipe" && d.recipe_id === r.id && !(d.date === dateStr && d.meal === meal),
+    ).length;
+    const dup = dupCount === 0 ? ""
+      : dupCount === 1 ? "⚠ Already planned once this week"
+      : `⚠ Already planned ${dupCount} times this week`;
+    const warn = recentWarnings.get(r.id);
     return `<div class="list-row"><span style="flex:1;min-width:0">${escapeHTML(r.name)}`
       + `<br><span class="muted">${escapeHTML(lastCookedLabel(r))} · cooked ${r.times_cooked}×</span>`
+      + (dup ? `<br><span class="error">${escapeHTML(dup)}</span>` : "")
       + (warn ? `<br><span class="error">⚠ ${escapeHTML(warn)}</span>` : "")
       + `</span><button class="btn btn-ghost" type="button" data-pick-recipe="${escapeHTML(r.id)}">Plan</button></div>`;
   };
@@ -833,7 +884,7 @@ function openSlotPicker(ctx, weekStart, dateStr, meal, existing) {
       return false;
     }
     close();
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderPlan(ctx);
     return true;
   };
@@ -917,7 +968,7 @@ function openSlotPicker(ctx, weekStart, dateStr, meal, existing) {
         return;
       }
       close();
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderPlan(ctx);
     });
   }
@@ -961,10 +1012,10 @@ async function renderRecipes(ctx) {
   } else {
     html += `<div class="list">` + active.map((r) =>
       `<div class="list-row" data-recipe-row="${escapeHTML(r.id)}" style="cursor:pointer"><span style="flex:1;min-width:0"><strong>${escapeHTML(r.name)}</strong>`
-      + `<br><span class="muted">${escapeHTML(lastCookedLabel(r))} · cooked ${r.times_cooked}×`
-      + (r.cook_minutes ? ` · ${r.cook_minutes} min` : "")
+      + `<br><span class="muted">${escapeHTML(lastCookedLabel(r))}`
+      + (r.times_cooked > 0 ? ` · cooked ${r.times_cooked}×` : "")
       + (r.servings ? ` · ${r.servings} servings` : "")
-      + ` · ${r.ingredient_count || 0} ingredient${(r.ingredient_count || 0) === 1 ? "" : "s"} · ${r.step_count || 0} step${(r.step_count || 0) === 1 ? "" : "s"}</span></span></div>`
+      + ` · ${r.ingredient_count || 0} ingredient${(r.ingredient_count || 0) === 1 ? "" : "s"}</span></span></div>`
     ).join("") + `</div>`;
   }
   if (archived.length > 0) {
@@ -979,14 +1030,14 @@ async function renderRecipes(ctx) {
   if (newBtn) {
     newBtn.addEventListener("click", () => {
       ctx.recipesView = { kind: "form", id: null };
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderRecipes(ctx);
     });
   }
   ctx.content.querySelectorAll("[data-recipe-row]").forEach((row) => {
     row.addEventListener("click", () => {
       ctx.recipesView = { kind: "detail", id: row.getAttribute("data-recipe-row") };
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderRecipes(ctx);
     });
   });
@@ -998,17 +1049,17 @@ async function renderRecipes(ctx) {
         ({ res, data } = await api(`/api/kitchen/recipes/restore?id=${btn.getAttribute("data-restore-recipe")}`, "POST"));
       } catch {
         restore();
-        ctx.notice = "Couldn’t restore — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t restore — check your connection and try again.";
         void renderRecipes(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderRecipes(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderRecipes(ctx);
     });
   });
@@ -1040,12 +1091,10 @@ async function renderRecipeDetail(ctx) {
   let html = noticeHTML(ctx)
     + `<p><button class="btn btn-ghost" type="button" id="back-to-recipes">← All recipes</button></p>`
     + `<h2 class="section-head">${escapeHTML(r.name)}</h2>`
-    + `<p class="muted">${escapeHTML(lastCookedLabel(r))} · cooked ${r.times_cooked}×`
-    + (r.cook_minutes ? ` · ${r.cook_minutes} min` : "")
+    + `<p class="muted">${escapeHTML(lastCookedLabel(r))}`
+    + (r.times_cooked > 0 ? ` · cooked ${r.times_cooked}×` : "")
     + (r.servings ? ` · serves ${r.servings}` : "")
-    + (r.usual_cook_name ? ` · usually ${escapeHTML(r.usual_cook_name)}` : "")
     + `</p>`;
-  if (r.notes) html += `<p>${escapeHTML(r.notes)}</p>`;
   if (r.ingredients && r.ingredients.length > 0) {
     html += `<h3 class="section-head">Ingredients</h3><ul>`;
     for (const ing of r.ingredients) {
@@ -1054,15 +1103,13 @@ async function renderRecipeDetail(ctx) {
     }
     html += `</ul>`;
   }
-  if (r.steps && r.steps.length > 0) {
-    html += `<h3 class="section-head">Steps</h3><ol>`;
-    for (const s of r.steps) {
-      html += `<li>${escapeHTML(s.text)}${s.duration_minutes ? ` <span class="muted">(${s.duration_minutes} min)</span>` : ""}</li>`;
-    }
-    html += `</ol>`;
+  // Simplified Recipe (0.4.0): one free-text instructions field,
+  // shown as written — no steps, no notes, no usual cook, no cook time.
+  if (r.instructions) {
+    html += `<h3 class="section-head">Instructions</h3><p style="white-space:pre-wrap">${escapeHTML(r.instructions)}</p>`;
   }
-  if ((!r.ingredients || r.ingredients.length === 0) && (!r.steps || r.steps.length === 0)) {
-    html += `<p class="muted">No ingredients or steps yet — edit to add them.</p>`;
+  if ((!r.ingredients || r.ingredients.length === 0) && !r.instructions) {
+    html += `<p class="muted">No ingredients or instructions yet — edit to add them.</p>`;
   }
   html += `<p><button class="btn btn-primary" type="button" id="edit-recipe">Edit</button> `
     + `<button class="btn btn-ghost" type="button" id="archive-recipe">Archive</button></p>`;
@@ -1070,12 +1117,12 @@ async function renderRecipeDetail(ctx) {
 
   ctx.content.querySelector("#back-to-recipes").addEventListener("click", () => {
     ctx.recipesView = { kind: "list" };
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderRecipes(ctx);
   });
   ctx.content.querySelector("#edit-recipe").addEventListener("click", () => {
     ctx.recipesView = { kind: "form", id };
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderRecipes(ctx);
   });
   ctx.content.querySelector("#archive-recipe").addEventListener("click", async () => {
@@ -1089,17 +1136,17 @@ async function renderRecipeDetail(ctx) {
     try {
       ({ res: aRes, data: aData } = await api(`/api/kitchen/recipes?id=${encodeURIComponent(id)}`, "DELETE"));
     } catch {
-      ctx.notice = "Couldn’t archive — check your connection and try again.";
+      ctx.success = ""; ctx.notice = "Couldn’t archive — check your connection and try again.";
       void renderRecipes(ctx);
       return;
     }
     if (!aRes.ok || !aData.ok) {
-      ctx.notice = friendlyError(aData);
+      ctx.success = ""; ctx.notice = friendlyError(aData);
       void renderRecipes(ctx);
       return;
     }
     ctx.recipesView = { kind: "list" };
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderRecipes(ctx);
   });
 }
@@ -1119,22 +1166,10 @@ function ingredientRowHTML(ing) {
     + `<div class="rf-line"><input class="field ing-qty" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i.quantity ?? ""}">`
     + `<input class="field ing-unit" type="text" placeholder="Unit" autocomplete="off" value="${escapeHTML(i.unit || "")}">`
     + `<input class="field ing-prep" type="text" placeholder="Prep note" autocomplete="off" value="${escapeHTML(i.prep_note || "")}"></div>`
-    + `<div class="rf-line"><select class="field ing-category" aria-label="Category"><option value="">No category</option>`
+    + `<div class="rf-line ing-category-line"><select class="field ing-category" aria-label="Category"><option value="">No category</option>`
     + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}"${i.category === c ? " selected" : ""}>${escapeHTML(c)}</option>`).join("")
     + `</select></div></div>`;
 }
-function stepRowHTML(step) {
-  const s = step || {};
-  // Two lines: step + minutes on top, reorder + Remove below, right
-  // aligned. The old row wrapped mid-controls at phone width.
-  return `<div class="list-row rf-step-row">`
-    + `<div class="rf-line"><input class="field step-text" type="text" placeholder="Step" autocomplete="off" value="${escapeHTML(s.text || "")}">`
-    + `<input class="field step-duration" type="number" min="0" step="1" inputmode="numeric" placeholder="Min" value="${s.duration_minutes ?? ""}"></div>`
-    + `<div class="rf-line rf-step-actions"><button class="btn btn-ghost btn-icon rf-up" type="button" title="Move up">↑</button>`
-    + `<button class="btn btn-ghost btn-icon rf-down" type="button" title="Move down">↓</button>`
-    + `<button class="btn btn-ghost rf-remove" type="button">Remove</button></div></div>`;
-}
-
 async function renderRecipeForm(ctx) {
   const editingId = ctx.recipesView.id;
   ctx.content.innerHTML = loadingHTML("recipe form");
@@ -1160,74 +1195,42 @@ async function renderRecipeForm(ctx) {
       return;
     }
   }
-  if (!ctx.members) {
-    try {
-      const { res, data } = await api("/api/household");
-      if (!isCurrent(ctx)) return;
-      if (res.status === 401) {
-        ctx.content.innerHTML = sessionEndedHTML();
-        return;
-      }
-      if (res.ok && data.ok) ctx.members = data.members || [];
-    } catch {
-      // The cook picker is optional — the form still works without it.
-      ctx.members = [];
-    }
-  }
   if (!isCurrent(ctx)) return;
 
   const r = recipe || {};
-  const members = ctx.members || [];
-  const ingredients = r.ingredients && r.ingredients.length > 0 ? r.ingredients : [{}];
-  const steps = r.steps && r.steps.length > 0 ? r.steps : [{}];
+  // Simplified Recipe (0.4.0): name + optional servings + ingredients
+  // + one free-text instructions field. No usual cook, cook time,
+  // notes, or steps — and no pre-rendered empty ingredient row: the
+  // list starts empty with only "Add ingredient" visible.
+  const ingredients = r.ingredients || [];
 
   let html = noticeHTML(ctx)
-    + `<h2 class="section-head">${editingId ? "Edit recipe" : "New recipe"}</h2>`
+    + `<div class="recipe-form"><h2 class="section-head">${editingId ? "Edit recipe" : "New recipe"}</h2>`
     + `<p class="error" id="rf-error"></p>`
     + `<p><label class="muted">Name</label><br><input class="field" id="rf-name" type="text" autocomplete="off" maxlength="200" value="${escapeHTML(r.name || "")}"></p>`
-    + `<p><label class="muted">Usual cook</label><br><select class="field" id="rf-cook"><option value="">No usual cook</option>`
-    + members.map((m) => `<option value="${escapeHTML(m.id)}"${r.usual_cook_id === m.id ? " selected" : ""}>${escapeHTML(m.name)}</option>`).join("")
-    + `</select></p>`
-    + `<p><label class="muted">Cook time (minutes)</label><br><input class="field" id="rf-minutes" type="number" min="1" max="1440" inputmode="numeric" style="width:8rem" value="${r.cook_minutes ?? ""}"></p>`
-    + `<p><label class="muted">Servings</label><br><input class="field" id="rf-servings" type="number" min="1" max="100" inputmode="numeric" style="width:8rem" value="${r.servings ?? ""}"></p>`
-    + `<p><label class="muted">Notes</label><br><textarea class="field" id="rf-notes" rows="3">${escapeHTML(r.notes || "")}</textarea></p>`
+    + `<p><label class="muted">Servings (optional)</label><br><input class="field" id="rf-servings" type="number" min="1" max="100" inputmode="numeric" style="width:8rem" value="${r.servings ?? ""}"></p>`
     + `<h3 class="section-head">Ingredients</h3><div id="rf-ingredients" class="list">`
     + ingredients.map(ingredientRowHTML).join("") + `</div>`
     + `<p><button class="btn btn-ghost" type="button" id="rf-add-ing">Add ingredient</button></p>`
-    + `<h3 class="section-head">Steps</h3><div id="rf-steps" class="list">`
-    + steps.map(stepRowHTML).join("") + `</div>`
-    + `<p><button class="btn btn-ghost" type="button" id="rf-add-step">Add step</button></p>`
+    + `<h3 class="section-head">Instructions</h3>`
+    + `<p><textarea class="field" id="rf-instructions" rows="6" placeholder="How to cook it — written however you like.">${escapeHTML(r.instructions || "")}</textarea></p>`
     + `<p><button class="btn btn-primary" type="button" id="rf-save">${editingId ? "Save changes" : "Create recipe"}</button> `
-    + `<button class="btn btn-ghost" type="button" id="rf-cancel">Cancel</button></p>`;
+    + `<button class="btn btn-ghost" type="button" id="rf-cancel">Cancel</button></p></div>`;
   ctx.content.innerHTML = html;
 
   // Row editors: delegated clicks handle rows added later too.
   const ingHost = ctx.content.querySelector("#rf-ingredients");
-  const stepHost = ctx.content.querySelector("#rf-steps");
   ingHost.addEventListener("click", (event) => {
     if (event.target.classList.contains("rf-remove")) {
       event.target.closest(".rf-ing-row").remove();
     }
   });
-  stepHost.addEventListener("click", (event) => {
-    const row = event.target.closest(".rf-step-row");
-    if (!row) return;
-    if (event.target.classList.contains("rf-remove")) row.remove();
-    else if (event.target.classList.contains("rf-up") && row.previousElementSibling) {
-      stepHost.insertBefore(row, row.previousElementSibling);
-    } else if (event.target.classList.contains("rf-down") && row.nextElementSibling) {
-      stepHost.insertBefore(row.nextElementSibling, row);
-    }
-  });
   ctx.content.querySelector("#rf-add-ing").addEventListener("click", () => {
     ingHost.insertAdjacentHTML("beforeend", ingredientRowHTML({}));
   });
-  ctx.content.querySelector("#rf-add-step").addEventListener("click", () => {
-    stepHost.insertAdjacentHTML("beforeend", stepRowHTML({}));
-  });
   ctx.content.querySelector("#rf-cancel").addEventListener("click", () => {
     ctx.recipesView = editingId ? { kind: "detail", id: editingId } : { kind: "list" };
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderRecipes(ctx);
   });
 
@@ -1244,10 +1247,9 @@ async function renderRecipeForm(ctx) {
       const n = Number(value);
       return Number.isFinite(n) && n > 0 && n <= max ? n : undefined;
     };
-    const cookMinutes = numOrNull(ctx.content.querySelector("#rf-minutes").value.trim(), 1440);
     const servings = numOrNull(ctx.content.querySelector("#rf-servings").value.trim(), 100);
-    if (cookMinutes === undefined || servings === undefined) {
-      errEl.textContent = "Cook time and servings must be positive numbers.";
+    if (servings === undefined) {
+      errEl.textContent = "Servings must be a positive number.";
       return;
     }
     const ingredients = [...ingHost.querySelectorAll(".rf-ing-row")].map((row) => {
@@ -1261,22 +1263,11 @@ async function renderRecipeForm(ctx) {
         category: row.querySelector(".ing-category").value || null,
       };
     }).filter((ing) => ing.name.length > 0);
-    const steps = [...stepHost.querySelectorAll(".rf-step-row")].map((row) => {
-      const durRaw = row.querySelector(".step-duration").value.trim();
-      const dur = durRaw === "" ? null : Math.round(Number(durRaw));
-      return {
-        text: row.querySelector(".step-text").value.trim(),
-        duration_minutes: Number.isFinite(dur) && dur > 0 ? dur : null,
-      };
-    }).filter((s) => s.text.length > 0);
     const payload = {
       name,
-      usual_cook_id: ctx.content.querySelector("#rf-cook").value || null,
-      cook_minutes: cookMinutes,
       servings,
-      notes: ctx.content.querySelector("#rf-notes").value.trim(),
+      instructions: ctx.content.querySelector("#rf-instructions").value.trim(),
       ingredients,
-      steps,
     };
     const restore = busy(btn, editingId ? "Saving…" : "Creating…");
     let res, data;
@@ -1393,16 +1384,24 @@ function shopLineHTML(l, finished) {
   }
   const lb = lastBoughtLabel(l);
   if (lb) meta.push(lb);
+  // On a finished list a carried-over line is labelled as such (0.4.0):
+  // it used to sit there with no buttons and no explanation.
+  if (finished && l.carry_over) meta.push("Carried over to the next list");
   let html = `<div class="list-row" style="flex-wrap:wrap"><div style="flex:1;min-width:10rem">`
     + `<strong>${escapeHTML(l.display_name)}</strong>${qty ? ` — ${escapeHTML(qty)}` : ""}`;
   if (meta.length > 0) html += `<br><span class="muted">${meta.map(escapeHTML).join(" · ")}</span>`;
   html += `</div>`;
   if (!finished) {
+    // Check off is the primary action; Uncheck is a ghost; Edit and
+    // Remove are demoted to small text buttons (0.4.0) — the old
+    // three-pill row wrapped Remove onto its own line.
+    html += `<div class="shop-line-actions">`;
     html += l.state === "checked"
-      ? `<button class="btn btn-primary" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="checked">Uncheck</button>`
-      : `<button class="btn btn-ghost" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="to_buy">Check off</button>`;
-    html += `<button class="btn btn-ghost" type="button" data-shop-edit="${escapeHTML(l.id)}">Edit</button>`;
-    html += `<button class="btn btn-ghost" type="button" data-shop-remove="${escapeHTML(l.id)}" data-shop-name="${escapeHTML(l.display_name)}">Remove</button>`;
+      ? `<button class="btn btn-ghost" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="checked">Uncheck</button>`
+      : `<button class="btn btn-primary" type="button" data-shop-toggle="${escapeHTML(l.id)}" data-shop-state="to_buy">Check off</button>`;
+    html += `<button class="text-button" type="button" data-shop-edit="${escapeHTML(l.id)}">Edit</button>`;
+    html += `<button class="text-button" type="button" data-shop-remove="${escapeHTML(l.id)}" data-shop-name="${escapeHTML(l.display_name)}">Remove</button>`;
+    html += `</div>`;
   }
   html += `</div>`;
   return html;
@@ -1468,24 +1467,64 @@ async function renderShop(ctx) {
       + `<button class="btn btn-primary" type="button" id="shop-regenerate">Regenerate</button></div></div>`;
   }
 
-  const noIng = data.no_ingredient_recipes || [];
-  if (noIng.length > 0) {
-    html += `<div class="list"><div class="list-row"><span>⚠ No ingredients recorded — add items manually if needed: `
-      + noIng.map((r) => `${escapeHTML(r.name)} (${escapeHTML(weekdayShort(r.date))} ${escapeHTML(r.meal)})`).join(", ")
-      + `</span></div></div>`;
-  }
-
   const lines = data.lines || [];
+  const groups = data.groups || [];
   const toBuy = lines.filter((l) => l.state === "to_buy");
   const checked = lines.filter((l) => l.state === "checked");
-  if (lines.length === 0) {
+  if (lines.length === 0 && groups.length === 0) {
     html += `<p class="muted">Nothing on the list yet.</p>`;
   }
-  for (const cat of [...SHOP_CATEGORIES, "Other"]) {
-    const group = toBuy.filter((l) => shopGroupFor(l) === cat);
-    if (group.length === 0) continue;
-    html += `<h3 class="section-head">${cat}</h3><div class="list">`;
-    for (const l of group) html += shopLineHTML(l, finished);
+  // Meal groups (0.4.0), in week order: one combined line per item,
+  // living in its earliest contributing group and naming the meals it
+  // covers (the provenance line under each item). Every planned meal
+  // gets its section, even when it has no lines of its own: a meal
+  // whose items were all combined into an earlier group's lines says
+  // so — otherwise the meal would vanish from the list — and a meal
+  // whose lines are all checked off points at In trolley.
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+  const groupLabel = (g) => `${g.recipe_name || "Planned meal"} · ${weekdayShort(g.date)} ${g.meal}`;
+  for (const g of groups) {
+    const gLines = toBuy.filter((l) => l.group_id === g.id);
+    const gChecked = checked.filter((l) => l.group_id === g.id);
+    const stale = g.stale && !finished && !g.orphaned;
+    html += `<h3 class="section-head">${escapeHTML(groupLabel(g))}</h3>`;
+    if (stale) {
+      html += `<div class="list"><div class="list-row"><span style="flex:1;min-width:0">${escapeHTML(g.recipe_name || "This recipe")} changed since this list was made.</span>`
+        + `<button class="btn btn-primary" type="button" data-shop-regenerate-group="${escapeHTML(g.id)}" data-group-date="${escapeHTML(g.date)}" data-group-meal="${escapeHTML(g.meal)}">Regenerate</button></div></div>`;
+    }
+    if (g.orphaned) {
+      html += `<p class="muted">This meal is no longer planned — regenerate the list to remove it.</p>`;
+    } else if (!g.has_ingredients) {
+      html += `<p class="muted">No ingredients recorded — add items manually if needed.</p>`;
+    } else if (gLines.length === 0) {
+      // No lines of its own: either everything is checked off, or
+      // its items were combined into an earlier group's lines (the
+      // covers on those lines name this group — follow them to the
+      // owning group).
+      const ownerId = [...toBuy, ...checked]
+        .filter((l) => (l.covers || []).includes(g.id))
+        .map((l) => l.group_id)
+        .find((id) => id && id !== g.id);
+      const owner = ownerId ? groupById.get(ownerId) : null;
+      if (gChecked.length > 0) {
+        html += `<p class="muted">All checked off — see In trolley below.</p>`;
+      } else if (owner) {
+        html += `<p class="muted">Items combined under ${escapeHTML(groupLabel(owner))}.</p>`;
+      }
+    }
+    if (gLines.length > 0) {
+      html += `<div class="list">`;
+      for (const l of gLines) html += shopLineHTML(l, finished);
+      html += `</div>`;
+    }
+  }
+  // Free items: manual adds, pantry-out lines, carry-overs — anything
+  // with no group. Within a group lines stay ordered by category
+  // (the server orders by category rank); free items the same.
+  const free = toBuy.filter((l) => !l.group_id);
+  if (free.length > 0) {
+    html += `<h3 class="section-head">Free items</h3><div class="list">`;
+    for (const l of free) html += shopLineHTML(l, finished);
     html += `</div>`;
   }
   if (checked.length > 0) {
@@ -1504,7 +1543,16 @@ async function renderShop(ctx) {
       + SHOP_CATEGORIES.map((c) => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("")
       + `</select></p>`
       + `<p><button class="btn btn-primary" type="button" id="shop-add-go">Add to list</button></p><p class="error" id="shop-add-error"></p>`
+      // Finish run is its own section now (0.4.0), not part of the
+      // add form — it used to sit stacked under "Add to list",
+      // below the fold behind the fixed nav.
+      + `<h3 class="section-head">Finish the run</h3>`
+      + `<p class="muted">Close this list — checked items become purchases, and the rest can carry over.</p>`
       + `<p><button class="btn btn-primary" type="button" id="shop-finish">Finish run</button></p>`;
+  } else if (!activeOtherWeek) {
+    // A finished week offers Generate again (0.4.0), so a fresh list
+    // can be started for it without disturbing the finished run.
+    html += `<p><button class="btn btn-primary" type="button" id="shop-generate">Generate a new list for this week</button></p>`;
   }
 
   ctx.content.innerHTML = html;
@@ -1515,7 +1563,7 @@ function wireShop(ctx, weekStart) {
   ctx.content.querySelectorAll("[data-shop-view]").forEach((btn) => {
     btn.addEventListener("click", () => {
       ctx.shopView = btn.getAttribute("data-shop-view");
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   });
@@ -1529,17 +1577,17 @@ function wireShop(ctx, weekStart) {
         ({ res, data } = await api("/api/kitchen/shop/generate", "POST", { week_start: weekStart }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t generate — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t generate — check your connection and try again.";
         void renderShop(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderShop(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   }
@@ -1549,7 +1597,7 @@ function wireShop(ctx, weekStart) {
     regenBtn.addEventListener("click", async () => {
       const yes = await confirmPrompt({
         title: "Regenerate the list?",
-        message: "Rebuilds the plan-derived lines from the current plan. Your edits to those lines, and any check-offs on them, will be replaced — items you added manually stay.",
+        message: "Rebuilds the plan-derived lines from the current plan. Lines that come back unchanged keep their check-offs; lines whose quantities changed come back unchecked. Items you added manually stay.",
         confirmLabel: "Regenerate",
       });
       if (!yes || !isCurrent(ctx)) return;
@@ -1559,20 +1607,54 @@ function wireShop(ctx, weekStart) {
         ({ res, data } = await api("/api/kitchen/shop/generate", "POST", { week_start: weekStart }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t regenerate — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t regenerate — check your connection and try again.";
         void renderShop(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderShop(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   }
+
+  // Per-group Regenerate (0.4.0): rebuilds only the lines that
+  // meal contributes to, from the current recipe. Other groups'
+  // lines, manual lines and carry-over lines are untouched.
+  ctx.content.querySelectorAll("[data-shop-regenerate-group]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const date = btn.getAttribute("data-group-date");
+      const meal = btn.getAttribute("data-group-meal");
+      const yes = await confirmPrompt({
+        title: "Regenerate this meal?",
+        message: "Rebuilds this meal’s lines from the current recipe. Lines that come back unchanged keep their check-offs; lines whose quantities changed come back unchecked. Other meals’ lines stay as they are.",
+        confirmLabel: "Regenerate",
+      });
+      if (!yes || !isCurrent(ctx)) return;
+      const restore = busy(btn, "Regenerating…");
+      let res, data;
+      try {
+        ({ res, data } = await api("/api/kitchen/shop/regenerate-group", "POST", { week_start: weekStart, date, meal }));
+      } catch {
+        restore();
+        ctx.success = ""; ctx.notice = "Couldn’t regenerate — check your connection and try again.";
+        void renderShop(ctx);
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        restore();
+        ctx.success = ""; ctx.notice = friendlyError(data);
+        void renderShop(ctx);
+        return;
+      }
+      ctx.notice = ""; ctx.success = "";
+      void renderShop(ctx);
+    });
+  });
 
   ctx.content.querySelectorAll("[data-shop-toggle]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -1584,17 +1666,17 @@ function wireShop(ctx, weekStart) {
         ({ res, data } = await api(`/api/kitchen/shop/lines?id=${encodeURIComponent(id)}`, "PATCH", { state: next }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t update that item — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t update that item — check your connection and try again.";
         void renderShop(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderShop(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   });
@@ -1620,16 +1702,16 @@ function wireShop(ctx, weekStart) {
       try {
         ({ res, data } = await api(`/api/kitchen/shop/lines?id=${encodeURIComponent(id)}`, "DELETE"));
       } catch {
-        ctx.notice = "Couldn’t remove that item — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t remove that item — check your connection and try again.";
         void renderShop(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderShop(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   });
@@ -1679,7 +1761,7 @@ function wireShop(ctx, weekStart) {
         if (errEl) errEl.textContent = friendlyError(data);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderShop(ctx);
     });
   }
@@ -1737,7 +1819,7 @@ function openLineEditor(ctx, line) {
       return;
     }
     close();
-    ctx.notice = "";
+    ctx.notice = ""; ctx.success = "";
     void renderShop(ctx);
   });
 }
@@ -1752,7 +1834,8 @@ function openFinishRun(ctx, weekStart) {
   const toBuy = lines.filter((l) => l.state === "to_buy");
   const body = document.createElement("div");
   let html = `<p class="muted">Week of ${shortDateLabel(weekStart)} · ${checked.length} checked, ${toBuy.length} still to buy.</p>`
-    + `<p><label class="muted">Run date</label><br><input class="field" id="finish-date" type="date" value="${localTodayStr()}" style="width:10rem"></p>`
+    + `<p><label class="muted">Run date</label><br><input class="field" id="finish-date" type="date" value="${localTodayStr()}" style="width:10rem">`
+    + `<br><span class="muted" id="finish-date-label">${escapeHTML(longDateLabel(localTodayStr()))}</span></p>`
     + `<p><label class="muted">Store (optional)</label><br><input class="field" id="finish-store" type="text" placeholder="Store" autocomplete="off" maxlength="100"></p>`;
   if (checked.length > 0) {
     html += `<h3 class="section-head">Prices (optional, per checked item)</h3>`;
@@ -1773,6 +1856,14 @@ function openFinishRun(ctx, weekStart) {
   }
   html += `<p class="error" id="finish-error"></p>`;
   body.innerHTML = html;
+  // Keep the formatted date line in step with the native picker.
+  const dateInput = body.querySelector("#finish-date");
+  const dateLabel = body.querySelector("#finish-date-label");
+  if (dateInput && dateLabel) {
+    dateInput.addEventListener("change", () => {
+      dateLabel.textContent = longDateLabel(dateInput.value);
+    });
+  }
   const close = openSheet({
     title: "Finish run",
     body,
@@ -1791,7 +1882,7 @@ function openFinishRun(ctx, weekStart) {
               return raw === "" ? null : { line_id: input.getAttribute("data-line-id"), price: Number(raw) };
             }).filter((p) => p !== null);
             if (prices.some((p) => !Number.isFinite(p.price) || p.price < 0)) {
-              ctx.notice = "Prices must be 0 or more.";
+              ctx.success = ""; ctx.notice = "Prices must be 0 or more.";
               close();
               void renderShop(ctx);
               return;
@@ -1808,16 +1899,17 @@ function openFinishRun(ctx, weekStart) {
                 carry_over: carryOver,
               }));
             } catch {
-              ctx.notice = "Couldn’t finish the run — check your connection and try again.";
+              ctx.success = ""; ctx.notice = "Couldn’t finish the run — check your connection and try again.";
               void renderShop(ctx);
               return;
             }
             if (!res.ok || !data.ok) {
-              ctx.notice = friendlyError(data);
+              ctx.success = ""; ctx.notice = friendlyError(data);
               void renderShop(ctx);
               return;
             }
-            ctx.notice = `Finished — ${data.purchased} purchased, ${data.carried_over} carried over to the next list.`;
+            ctx.success = `Finished — ${data.purchased} purchased, ${data.carried_over} carried over to the next list.`;
+            ctx.notice = "";
             void renderShop(ctx);
           })();
         },
@@ -1864,10 +1956,14 @@ async function renderPantry(ctx) {
         currentCat = cat;
       }
       const lb = it.last_bought_date ? `Last bought ${daysAgoLabel(it.last_bought_date)}` : "";
+      // Segmented Have / Out (0.4.0): the old single button read as a
+      // status badge, not an action — both states are shown, the
+      // current one filled.
       html += `<div class="list-row" style="flex-wrap:wrap"><span style="flex:1;min-width:8rem"><strong>${escapeHTML(it.name)}</strong>`
         + (lb ? `<br><span class="muted">${escapeHTML(lb)}</span>` : "")
         + `</span>`
-        + `<button class="btn ${it.on_hand === "have" ? "btn-primary" : "btn-ghost"}" type="button" data-pantry-toggle="${escapeHTML(it.item_id)}" data-pantry-state="${escapeHTML(it.on_hand)}">${it.on_hand === "have" ? "Have" : "Out"}</button>`
+        + `<span class="segmented"><button class="btn ${it.on_hand === "have" ? "btn-primary" : "btn-ghost"}" type="button" data-pantry-set="${escapeHTML(it.item_id)}" data-pantry-state="have">Have</button>`
+        + `<button class="btn ${it.on_hand === "out" ? "btn-primary" : "btn-ghost"}" type="button" data-pantry-set="${escapeHTML(it.item_id)}" data-pantry-state="out">Out</button></span>`
         + `<button class="btn btn-ghost" type="button" data-pantry-remove="${escapeHTML(it.item_id)}" data-pantry-name="${escapeHTML(it.name)}">Remove</button></div>`;
     }
     if (currentCat !== null) html += `</div>`;
@@ -1887,27 +1983,27 @@ async function renderPantry(ctx) {
 }
 
 function wirePantry(ctx) {
-  ctx.content.querySelectorAll("[data-pantry-toggle]").forEach((btn) => {
+  ctx.content.querySelectorAll("[data-pantry-set]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const itemId = btn.getAttribute("data-pantry-toggle");
-      const next = btn.getAttribute("data-pantry-state") === "have" ? "out" : "have";
+      const itemId = btn.getAttribute("data-pantry-set");
+      const next = btn.getAttribute("data-pantry-state");
       const restore = busy(btn, "Saving…");
       let res, data;
       try {
         ({ res, data } = await api(`/api/kitchen/pantry?item_id=${encodeURIComponent(itemId)}`, "PATCH", { on_hand: next }));
       } catch {
         restore();
-        ctx.notice = "Couldn’t update that staple — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t update that staple — check your connection and try again.";
         void renderPantry(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
         restore();
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderPantry(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderPantry(ctx);
     });
   });
@@ -1926,16 +2022,16 @@ function wirePantry(ctx) {
       try {
         ({ res, data } = await api(`/api/kitchen/pantry?item_id=${encodeURIComponent(itemId)}`, "DELETE"));
       } catch {
-        ctx.notice = "Couldn’t remove that staple — check your connection and try again.";
+        ctx.success = ""; ctx.notice = "Couldn’t remove that staple — check your connection and try again.";
         void renderPantry(ctx);
         return;
       }
       if (!res.ok || !data.ok) {
-        ctx.notice = friendlyError(data);
+        ctx.success = ""; ctx.notice = friendlyError(data);
         void renderPantry(ctx);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderPantry(ctx);
     });
   });
@@ -1978,7 +2074,7 @@ function wirePantry(ctx) {
         if (errEl) errEl.textContent = friendlyError(data);
         return;
       }
-      ctx.notice = "";
+      ctx.notice = ""; ctx.success = "";
       void renderPantry(ctx);
     });
   }

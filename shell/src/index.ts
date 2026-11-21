@@ -28,7 +28,7 @@ import {
   type AuthContext,
 } from "./auth.js";
 
-const VERSION = "0.3.5"; // Leave dialog wording for sole members (0.3.5)
+const VERSION = "0.4.0"; // Simplified Recipe + day-list Plan + meal-grouped Shop (0.4.0)
 
 export interface Env {
   ASSETS: Fetcher;

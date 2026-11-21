@@ -381,9 +381,11 @@ function householdPanelHTML(hh, me) {
     + `<p class="invite-row"><input class="field" id="invite-link" type="text" readonly value="${escapeHTML(hh.invite_link || "")}">`
     + `<button class="btn btn-ghost" id="copy-invite" type="button">Copy invite link</button></p>`
     + (isCreator
-      ? `<p><button class="btn btn-ghost" id="revoke-invite" type="button">Revoke invite link</button></p>`
-      : `<p class="muted">Only the household creator can revoke the invite link.</p>`)
-    + `<p><button class="btn btn-ghost" id="leave-household" type="button">Leave household</button></p></section>`;
+      ? `<p class="household-actions"><button class="btn btn-ghost" id="revoke-invite" type="button">Revoke invite link</button>`
+        + `<button class="btn btn-ghost" id="leave-household" type="button">Leave household</button></p>`
+      : `<p class="muted">Only the household creator can revoke the invite link.</p>`
+        + `<p><button class="btn btn-ghost" id="leave-household" type="button">Leave household</button></p>`)
+    + `</section>`;
 }
 
 function wireHouseholdPanel(hh, me) {

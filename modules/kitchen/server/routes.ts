@@ -143,19 +143,6 @@ async function lastCookedMap(k: KitchenEnv, hid: string): Promise<Map<string, Ro
   return map;
 }
 
-// Household member id -> display name (for usual_cook).
-async function memberNames(k: KitchenEnv, hid: string): Promise<Map<string, string>> {
-  const { results } = await k.DB.prepare(
-    "SELECT u.id AS id, u.name AS name FROM household_members m " +
-      "JOIN users u ON u.id = m.user_id WHERE m.household_id = ?",
-  )
-    .bind(hid)
-    .all();
-  const map = new Map<string, string>();
-  for (const r of results as any[]) map.set(String(r.id), String(r.name));
-  return map;
-}
-
 function canonicalName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -197,18 +184,20 @@ async function resolveItems(k: KitchenEnv, hid: string, names: string[]): Promis
 function recipeShape(
   r: any,
   lc: Map<string, Rotation>,
-  cooks: Map<string, string>,
   extra: Record<string, unknown> = {},
 ) {
   const rot = lc.get(String(r.id)) || { last_cooked: null, times_cooked: 0 };
   return {
     id: String(r.id),
     name: String(r.name),
-    usual_cook_id: r.usual_cook_id ? String(r.usual_cook_id) : null,
-    usual_cook_name: r.usual_cook_id ? cooks.get(String(r.usual_cook_id)) || null : null,
-    cook_minutes: r.cook_minutes ?? null,
     servings: r.servings ?? null,
-    notes: String(r.notes || ""),
+    // Simplified Recipe (0.4.0): one free-text instructions field
+    // replaces the steps table; usual cook, cook time and notes are
+    // gone from the form and the API. Their columns stay on
+    // cook_recipes (unused) and cook_recipe_steps stays in place,
+    // unused — removing columns/tables follows the remove-column rule
+    // (code first, then drop) and is a later cleanup, not this change.
+    instructions: r.instructions ? String(r.instructions) : null,
     photo_r2_key: r.photo_r2_key ? String(r.photo_r2_key) : null,
     archived_at: r.archived_at ? String(r.archived_at) : null,
     created_at: String(r.created_at),
@@ -218,27 +207,20 @@ function recipeShape(
   };
 }
 
-// Full recipe detail: row + ingredients (with canonical names) + steps.
+// Full recipe detail: row + ingredients (with canonical names).
 async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<any | null> {
-  const [recipeRes, ingRes, stepRes, evRes, membersRes] = await k.DB.batch([
+  const [recipeRes, ingRes, evRes] = await k.DB.batch([
     k.DB.prepare("SELECT * FROM cook_recipes WHERE id = ? AND household_id = ?").bind(id, hid),
     k.DB.prepare(
       "SELECT i.*, s.canonical_name AS item_name, s.category AS item_category FROM cook_recipe_ingredients i " +
         "JOIN shop_items s ON s.id = i.item_id WHERE i.recipe_id = ? ORDER BY i.sort_order",
     ).bind(id),
-    k.DB.prepare("SELECT * FROM cook_recipe_steps WHERE recipe_id = ? ORDER BY step_no").bind(id),
     k.DB.prepare(
       "SELECT MAX(date) AS last_cooked, COUNT(*) AS times_cooked FROM cook_events WHERE household_id = ? AND recipe_id = ?",
     ).bind(hid, id),
-    k.DB.prepare(
-      "SELECT u.id AS id, u.name AS name FROM household_members m " +
-        "JOIN users u ON u.id = m.user_id WHERE m.household_id = ?",
-    ).bind(hid),
   ]);
   const r: any = recipeRes.results[0];
   if (!r) return null;
-  const cooks = new Map<string, string>();
-  for (const m of membersRes.results as any[]) cooks.set(String(m.id), String(m.name));
   const ev: any = evRes.results[0];
   const lc = new Map<string, Rotation>([
     [
@@ -250,7 +232,7 @@ async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<
     ],
   ]);
   return {
-    ...recipeShape(r, lc, cooks),
+    ...recipeShape(r, lc),
     ingredients: (ingRes.results as any[]).map((i: any) => ({
       item_id: String(i.item_id),
       name: String(i.item_name),
@@ -260,17 +242,11 @@ async function fetchRecipeFull(k: KitchenEnv, hid: string, id: string): Promise<
       category: i.item_category ? String(i.item_category) : null,
       sort_order: Number(i.sort_order),
     })),
-    steps: (stepRes.results as any[]).map((s: any) => ({
-      step_no: Number(s.step_no),
-      text: String(s.text),
-      duration_minutes: s.duration_minutes ?? null,
-    })),
   };
 }
 
 // --- Input cleaning (null = field not provided, [] = provided but empty) ---
 type IngredientIn = { name: string; quantity: number | null; unit: string | null; prep_note: string | null; category: string | null };
-type StepIn = { text: string; duration_minutes: number | null };
 
 function cleanIngredients(input: unknown): IngredientIn[] | null {
   if (input === undefined) return null;
@@ -296,23 +272,6 @@ function cleanIngredients(input: unknown): IngredientIn[] | null {
       category: typeof it?.category === "string" && isShopCategory(it.category) ? it.category : null,
     }))
     .filter((it) => it.name.length > 0);
-}
-
-function cleanSteps(input: unknown): StepIn[] | null {
-  if (input === undefined) return null;
-  if (!Array.isArray(input)) return [];
-  return input
-    .slice(0, 100)
-    .map((s: any) => ({
-      text: typeof s?.text === "string" ? s.text.trim() : typeof s === "string" ? s.trim() : "",
-      duration_minutes:
-        typeof s?.duration_minutes === "number" &&
-        Number.isFinite(s.duration_minutes) &&
-        s.duration_minutes > 0
-          ? Math.round(s.duration_minutes)
-          : null,
-    }))
-    .filter((s) => s.text.length > 0);
 }
 
 // Optional positive integer field: null when absent, undefined when invalid.
@@ -428,13 +387,9 @@ async function listRecipes(request: Request, env: unknown, ctx: AuthContext | nu
   }
   const includeArchived = url.searchParams.get("include_archived") === "1";
   const where = includeArchived ? "" : " AND archived_at IS NULL";
-  const [recipesRes, membersRes, eventsRes, ingCountRes, stepCountRes] = await k.DB.batch([
+  const [recipesRes, eventsRes, ingCountRes] = await k.DB.batch([
     k.DB.prepare(
       `SELECT * FROM cook_recipes WHERE household_id = ?${where} ORDER BY name`,
-    ).bind(auth.hid),
-    k.DB.prepare(
-      "SELECT u.id AS id, u.name AS name FROM household_members m " +
-        "JOIN users u ON u.id = m.user_id WHERE m.household_id = ?",
     ).bind(auth.hid),
     k.DB.prepare(
       "SELECT recipe_id, MAX(date) AS last_cooked, COUNT(*) AS times_cooked " +
@@ -444,13 +399,7 @@ async function listRecipes(request: Request, env: unknown, ctx: AuthContext | nu
       "SELECT i.recipe_id AS recipe_id, COUNT(*) AS n FROM cook_recipe_ingredients i " +
         "JOIN cook_recipes r ON r.id = i.recipe_id WHERE r.household_id = ? GROUP BY i.recipe_id",
     ).bind(auth.hid),
-    k.DB.prepare(
-      "SELECT s.recipe_id AS recipe_id, COUNT(*) AS n FROM cook_recipe_steps s " +
-        "JOIN cook_recipes r ON r.id = s.recipe_id WHERE r.household_id = ? GROUP BY s.recipe_id",
-    ).bind(auth.hid),
   ]);
-  const cooks = new Map<string, string>();
-  for (const m of membersRes.results as any[]) cooks.set(String(m.id), String(m.name));
   const lc = new Map<string, Rotation>();
   for (const r of eventsRes.results as any[]) {
     lc.set(String(r.recipe_id), {
@@ -460,14 +409,11 @@ async function listRecipes(request: Request, env: unknown, ctx: AuthContext | nu
   }
   const ingCount = new Map<string, number>();
   for (const r of ingCountRes.results as any[]) ingCount.set(String(r.recipe_id), Number(r.n));
-  const stepCount = new Map<string, number>();
-  for (const r of stepCountRes.results as any[]) stepCount.set(String(r.recipe_id), Number(r.n));
   return json({
     ok: true,
     recipes: (recipesRes.results as any[]).map((r: any) =>
-      recipeShape(r, lc, cooks, {
+      recipeShape(r, lc, {
         ingredient_count: ingCount.get(String(r.id)) || 0,
-        step_count: stepCount.get(String(r.id)) || 0,
       }),
     ),
   });
@@ -480,35 +426,22 @@ async function createRecipe(request: Request, env: unknown, ctx: AuthContext | n
   const body = await readBody(request);
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name || name.length > 200) return err("recipe_name_required", 400);
-  const cookMinutes = optInt(body.cook_minutes, 1440);
-  if (cookMinutes === undefined) return err("invalid_cook_minutes", 400);
   const servings = optInt(body.servings, 100);
   if (servings === undefined) return err("invalid_servings", 400);
-  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 2000) : "";
-  const usualCookId =
-    typeof body.usual_cook_id === "string" && body.usual_cook_id ? body.usual_cook_id : null;
+  // Simplified Recipe (0.4.0): instructions is one free-text field.
+  // The dropped fields (usual_cook_id, cook_minutes, notes, steps)
+  // are ignored when sent — they are no longer read or stored.
+  const instructions =
+    typeof body.instructions === "string" ? body.instructions.trim().slice(0, 10000) : "";
   const ingredients = cleanIngredients(body.ingredients) ?? [];
-  const steps = cleanSteps(body.steps) ?? [];
-  // Member check (when a cook is named) + duplicate-name warning, one batch.
-  const stmts: D1PreparedStatement[] = [];
-  const cookIdx = usualCookId ? stmts.length : -1;
-  if (usualCookId) {
-    stmts.push(
-      k.DB.prepare("SELECT 1 AS ok FROM household_members WHERE household_id = ? AND user_id = ?").bind(
-        auth.hid,
-        usualCookId,
-      ),
-    );
-  }
-  const dupIdx = stmts.length;
-  stmts.push(
-    k.DB.prepare(
+  // Duplicate-name warning, one read.
+  const duplicate = (
+    await k.DB.prepare(
       "SELECT id FROM cook_recipes WHERE household_id = ? AND LOWER(name) = LOWER(?) AND archived_at IS NULL",
-    ).bind(auth.hid, name),
-  );
-  const checks = await k.DB.batch(stmts);
-  if (cookIdx >= 0 && !checks[cookIdx].results[0]) return err("invalid_cook", 400);
-  const duplicate = checks[dupIdx].results.length > 0;
+    )
+      .bind(auth.hid, name)
+      .all()
+  ).results.length > 0;
   // Canonical items first (two batched round-trips inside resolveItems),
   // then the recipe + its rows in one all-or-nothing batch.
   const itemIds = await resolveItems(k, auth.hid, ingredients.map((i) => i.name));
@@ -516,9 +449,9 @@ async function createRecipe(request: Request, env: unknown, ctx: AuthContext | n
   const now = nowIso();
   const writes: D1PreparedStatement[] = [
     k.DB.prepare(
-      "INSERT INTO cook_recipes (id, household_id, name, usual_cook_id, cook_minutes, servings, notes, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(id, auth.hid, name, usualCookId, cookMinutes, servings, notes, now, now),
+      "INSERT INTO cook_recipes (id, household_id, name, servings, instructions, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).bind(id, auth.hid, name, servings, instructions || null, now, now),
   ];
   ingredients.forEach((ing, i) => {
     writes.push(
@@ -527,16 +460,8 @@ async function createRecipe(request: Request, env: unknown, ctx: AuthContext | n
       ).bind(id, itemIds.get(canonicalName(ing.name))!, ing.quantity, ing.unit, ing.prep_note, i),
     );
   });
-  steps.forEach((s, i) => {
-    writes.push(
-      k.DB.prepare(
-        "INSERT INTO cook_recipe_steps (recipe_id, step_no, text, duration_minutes) VALUES (?, ?, ?, ?)",
-      ).bind(id, i + 1, s.text, s.duration_minutes),
-    );
-  });
   await k.DB.batch(writes);
   await applyIngredientCategories(k, itemIds, ingredients);
-  const cooks = await memberNames(k, auth.hid);
   return json(
     {
       ok: true,
@@ -544,17 +469,14 @@ async function createRecipe(request: Request, env: unknown, ctx: AuthContext | n
         {
           id,
           name,
-          usual_cook_id: usualCookId,
-          cook_minutes: cookMinutes,
           servings,
-          notes,
+          instructions: instructions || null,
           photo_r2_key: null,
           archived_at: null,
           created_at: now,
         },
         new Map(),
-        cooks,
-        { ingredient_count: ingredients.length, step_count: steps.length },
+        { ingredient_count: ingredients.length },
       ),
       duplicate_name_warning: duplicate,
     },
@@ -584,42 +506,20 @@ async function updateRecipe(request: Request, env: unknown, ctx: AuthContext | n
     sets.push("name = ?");
     binds.push(n);
   }
-  let usualCookId: string | null | undefined;
-  if (body.usual_cook_id !== undefined) {
-    usualCookId =
-      typeof body.usual_cook_id === "string" && body.usual_cook_id ? body.usual_cook_id : null;
-    sets.push("usual_cook_id = ?");
-    binds.push(usualCookId);
-  }
-  if (body.cook_minutes !== undefined) {
-    const v = optInt(body.cook_minutes, 1440);
-    if (v === undefined) return err("invalid_cook_minutes", 400);
-    sets.push("cook_minutes = ?");
-    binds.push(v);
-  }
   if (body.servings !== undefined) {
     const v = optInt(body.servings, 100);
     if (v === undefined) return err("invalid_servings", 400);
     sets.push("servings = ?");
     binds.push(v);
   }
-  if (typeof body.notes === "string") {
-    sets.push("notes = ?");
-    binds.push(body.notes.trim().slice(0, 2000));
+  if (typeof body.instructions === "string") {
+    sets.push("instructions = ?");
+    binds.push(body.instructions.trim().slice(0, 10000) || null);
   }
   const ingredients = cleanIngredients(body.ingredients);
-  const steps = cleanSteps(body.steps);
-  // Validate the cook (when changed) before writing.
-  if (usualCookId) {
-    const ok: any = await k.DB.prepare(
-      "SELECT 1 AS ok FROM household_members WHERE household_id = ? AND user_id = ?",
-    )
-      .bind(auth.hid, usualCookId)
-      .first();
-    if (!ok) return err("invalid_cook", 400);
-  }
-  // Replace ingredient/step rows when provided (DELETE + INSERT in the
-  // same all-or-nothing batch as the recipe update).
+  // Replace ingredient rows when provided (DELETE + INSERT in the same
+  // all-or-nothing batch as the recipe update). The dropped fields
+  // (usual_cook_id, cook_minutes, notes, steps) are ignored when sent.
   let itemIds = new Map<string, string>();
   if (ingredients !== null) {
     itemIds = await resolveItems(k, auth.hid, ingredients.map((i) => i.name));
@@ -639,16 +539,6 @@ async function updateRecipe(request: Request, env: unknown, ctx: AuthContext | n
         k.DB.prepare(
           "INSERT INTO cook_recipe_ingredients (recipe_id, item_id, quantity, unit, prep_note, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
         ).bind(id, itemIds.get(canonicalName(ing.name))!, ing.quantity, ing.unit, ing.prep_note, i),
-      );
-    });
-  }
-  if (steps !== null) {
-    writes.push(k.DB.prepare("DELETE FROM cook_recipe_steps WHERE recipe_id = ?").bind(id));
-    steps.forEach((s, i) => {
-      writes.push(
-        k.DB.prepare(
-          "INSERT INTO cook_recipe_steps (recipe_id, step_no, text, duration_minutes) VALUES (?, ?, ?, ?)",
-        ).bind(id, i + 1, s.text, s.duration_minutes),
       );
     });
   }
@@ -1110,24 +1000,15 @@ async function getToday(request: Request, env: unknown, ctx: AuthContext | null)
   const details = new Map<string, any>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => "?").join(",");
-    const [recipesRes, ingRes, stepRes, evRes, membersRes] = await k.DB.batch([
+    const [recipesRes, ingRes, evRes] = await k.DB.batch([
       k.DB.prepare(`SELECT * FROM cook_recipes WHERE id IN (${placeholders})`).bind(...recipeIds),
       k.DB.prepare(
         `SELECT i.*, s.canonical_name AS item_name FROM cook_recipe_ingredients i JOIN shop_items s ON s.id = i.item_id WHERE i.recipe_id IN (${placeholders}) ORDER BY i.recipe_id, i.sort_order`,
       ).bind(...recipeIds),
       k.DB.prepare(
-        `SELECT * FROM cook_recipe_steps WHERE recipe_id IN (${placeholders}) ORDER BY recipe_id, step_no`,
-      ).bind(...recipeIds),
-      k.DB.prepare(
         `SELECT recipe_id, MAX(date) AS last_cooked, COUNT(*) AS times_cooked FROM cook_events WHERE recipe_id IN (${placeholders}) AND household_id = ? GROUP BY recipe_id`,
       ).bind(...recipeIds, auth.hid),
-      k.DB.prepare(
-        "SELECT u.id AS id, u.name AS name FROM household_members m " +
-          "JOIN users u ON u.id = m.user_id WHERE m.household_id = ?",
-      ).bind(auth.hid),
     ]);
-    const cooks = new Map<string, string>();
-    for (const m of membersRes.results as any[]) cooks.set(String(m.id), String(m.name));
     const lc = new Map<string, Rotation>();
     for (const r of evRes.results as any[]) {
       lc.set(String(r.recipe_id), {
@@ -1148,21 +1029,10 @@ async function getToday(request: Request, env: unknown, ctx: AuthContext | null)
       });
       ings.set(String(i.recipe_id), arr);
     }
-    const steps = new Map<string, any[]>();
-    for (const s of stepRes.results as any[]) {
-      const arr = steps.get(String(s.recipe_id)) || [];
-      arr.push({
-        step_no: Number(s.step_no),
-        text: String(s.text),
-        duration_minutes: s.duration_minutes ?? null,
-      });
-      steps.set(String(s.recipe_id), arr);
-    }
     for (const r of recipesRes.results as any[]) {
       details.set(String(r.id), {
-        ...recipeShape(r, lc, cooks),
+        ...recipeShape(r, lc),
         ingredients: ings.get(String(r.id)) || [],
-        steps: steps.get(String(r.id)) || [],
       });
     }
   }
@@ -1193,7 +1063,7 @@ async function getNextMeal(request: Request, env: unknown, ctx: AuthContext | nu
   if (!today) return err("invalid_date", 400);
   const todayStr = fmtDate(today);
   const row: any = await k.DB.prepare(
-    "SELECT d.date AS date, d.meal AS meal, r.name AS recipe_name, r.cook_minutes AS cook_minutes " +
+    "SELECT d.date AS date, d.meal AS meal, r.name AS recipe_name " +
       "FROM cook_plan_days d JOIN cook_week_plans p ON p.id = d.plan_id " +
       "JOIN cook_recipes r ON r.id = d.recipe_id " +
       "WHERE p.household_id = ? AND d.state = 'recipe' AND d.resolution IS NULL AND d.date >= ? " +
@@ -1208,7 +1078,6 @@ async function getNextMeal(request: Request, env: unknown, ctx: AuthContext | nu
       date: String(row.date),
       meal: String(row.meal),
       recipe_name: String(row.recipe_name),
-      cook_minutes: row.cook_minutes ?? null,
     },
   });
 }
@@ -1292,10 +1161,31 @@ type DerivedLine = {
   source_recipe_id: string | null;
   source_date: string | null;
   sources: { recipe_id: string; name: string; date: string; meal: string }[];
+  // Meal grouping (0.4.0): the line lives in the group of its
+  // earliest contributing slot; covers names the other groups summed
+  // into it, as slot keys "date|meal". Null for free items
+  // (pantry_out / carry_over / manual), which belong to no group.
+  group_key: string | null;
+  covers: string[];
+};
+
+// One group per planned recipe slot: the fingerprint covers the slot
+// (date, meal, recipe, servings) AND the recipe contents (servings +
+// ingredients) the group was built from, so a recipe edit marks only
+// its group stale.
+type DerivedGroup = {
+  key: string;
+  date: string;
+  meal: string;
+  recipe_id: string;
+  recipe_name: string;
+  fingerprint: string;
+  has_ingredients: boolean;
 };
 
 type DeriveResult = {
   lines: DerivedLine[];
+  groups: DerivedGroup[];
   noIngredientRecipes: { recipe_id: string; name: string; date: string; meal: string }[];
   fingerprint: string;
   planId: string | null;
@@ -1319,6 +1209,36 @@ function planFingerprint(days: any[]): string {
       a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : mealRank(a[1]) - mealRank(b[1]),
     );
   return JSON.stringify(tuples);
+}
+
+// The per-group fingerprint (0.4.0): the slot tuple plus the recipe
+// contents the group was built from — recipe servings and the
+// ingredient tuples (item, quantity, unit, category) in recipe order.
+// A recipe edit (ingredient, quantity, servings, or a category the
+// catalogue learned) changes exactly its groups' fingerprints; a
+// recipe not planned this week changes nothing.
+function groupFingerprint(
+  slot: any,
+  recipeServings: number | null,
+  ingredients: any[],
+): string {
+  return JSON.stringify([
+    String(slot.date),
+    String(slot.meal),
+    String(slot.recipe_id),
+    slot.servings ?? null,
+    recipeServings,
+    ingredients.map((i: any) => [
+      String(i.item_id),
+      i.quantity ?? null,
+      cleanUnit(i.unit),
+      i.category ? String(i.category) : null,
+    ]),
+  ]);
+}
+
+function groupKeyFor(date: string, meal: string): string {
+  return `${date}|${meal}`;
 }
 
 // Derive the week's shop lines from the plan + pantry + carry-over.
@@ -1388,6 +1308,31 @@ async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Pr
       });
     }
   }
+
+  // One group per planned recipe slot, in week order — including
+  // no-ingredient slots, which render as an empty group carrying the
+  // "no ingredients recorded" note instead of the old week-level
+  // warning box.
+  const sortedSlots = [...recipeSlots].sort((a: any, b: any) =>
+    String(a.date) < String(b.date)
+      ? -1
+      : String(a.date) > String(b.date)
+        ? 1
+        : mealRank(String(a.meal)) - mealRank(String(b.meal)),
+  );
+  const groups: DerivedGroup[] = sortedSlots.map((slot: any) => {
+    const recipe = recipes.get(String(slot.recipe_id));
+    const ings = ingsByRecipe.get(String(slot.recipe_id)) || [];
+    return {
+      key: groupKeyFor(String(slot.date), String(slot.meal)),
+      date: String(slot.date),
+      meal: String(slot.meal),
+      recipe_id: String(slot.recipe_id),
+      recipe_name: recipe ? recipe.name : String(slot.recipe_name || ""),
+      fingerprint: groupFingerprint(slot, recipe ? recipe.servings : null, ings),
+      has_ingredients: ings.length > 0,
+    };
+  });
 
   // Aggregate by (item_id, unit): same item sums when units match, a
   // unit mismatch keeps two lines. Sources list one entry per
@@ -1471,6 +1416,10 @@ async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Pr
       quantity = Math.ceil(quantity - 1e-9);
       isRounded = 1;
     }
+    // The line lives in its earliest contributing group and names the
+    // other groups it sums, so the Shop view can render one combined
+    // line per item under its first meal and note the rest.
+    const first = e.sources[0];
     lines.push({
       item_id: e.item_id,
       display_name: e.display_name,
@@ -1483,6 +1432,8 @@ async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Pr
       source_recipe_id: e.sources[0]?.recipe_id ?? null,
       source_date: e.sources[0]?.date ?? null,
       sources: e.sources,
+      group_key: first ? groupKeyFor(first.date, first.meal) : null,
+      covers: e.sources.slice(1).map((s) => groupKeyFor(s.date, s.meal)),
     });
   }
   const onList = new Set(lines.map((l) => l.item_id));
@@ -1500,6 +1451,8 @@ async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Pr
       source_recipe_id: null,
       source_date: null,
       sources: [],
+      group_key: null,
+      covers: [],
     });
   }
 
@@ -1523,11 +1476,14 @@ async function deriveFromPlan(k: KitchenEnv, hid: string, weekStart: string): Pr
       source_recipe_id: l.source_recipe_id ? String(l.source_recipe_id) : null,
       source_date: l.source_date ? String(l.source_date) : null,
       sources: parseSources(l.sources),
+      group_key: null,
+      covers: [],
     });
   }
 
   return {
     lines,
+    groups,
     noIngredientRecipes,
     fingerprint,
     planId: plan ? String(plan.id) : null,
@@ -1617,9 +1573,24 @@ function lineShape(l: any, lastBought: Map<string, { date: string; unit_price: n
     source_date: l.source_date ? String(l.source_date) : null,
     sources: parseSources(l.sources),
     carry_over: Number(l.carry_over) === 1,
+    group_id: l.group_id ? String(l.group_id) : null,
+    covers: parseGroupKeys(l.covers),
     last_bought_date: lb?.date ?? null,
     last_unit_price: lb?.unit_price ?? null,
   };
+}
+
+// covers is a JSON array of group ids; tolerate a missing column on
+// runs created before 0.4.0 (the migration adds it, but a stale
+// worker could still read old rows).
+function parseGroupKeys(raw: unknown): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(String(raw));
+    return Array.isArray(v) ? v.map((x) => String(x)) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function shopLinesForRun(k: KitchenEnv, runId: string): Promise<any[]> {
@@ -1631,6 +1602,182 @@ async function shopLinesForRun(k: KitchenEnv, runId: string): Promise<any[]> {
     .bind(runId)
     .all();
   return results as any[];
+}
+
+// --- Shop groups (0.4.0) ---
+
+type StoredGroup = {
+  id: string;
+  date: string;
+  meal: string;
+  recipe_id: string | null;
+  recipe_name: string | null;
+  fingerprint: string | null;
+};
+
+async function groupsForRun(k: KitchenEnv, runId: string): Promise<StoredGroup[]> {
+  const { results } = await k.DB.prepare(
+    "SELECT g.*, r.name AS recipe_name FROM shop_list_groups g " +
+      "LEFT JOIN cook_recipes r ON r.id = g.recipe_id WHERE g.run_id = ? ORDER BY g.date, " +
+      "CASE g.meal WHEN 'breakfast' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END",
+  )
+    .bind(runId)
+    .all();
+  return (results as any[]).map((g: any) => ({
+    id: String(g.id),
+    date: String(g.date),
+    meal: String(g.meal),
+    recipe_id: g.recipe_id ? String(g.recipe_id) : null,
+    recipe_name: g.recipe_name ? String(g.recipe_name) : null,
+    fingerprint: g.fingerprint ? String(g.fingerprint) : null,
+  }));
+}
+
+// The API shape for a group: stale when its fingerprint no longer
+// matches the fresh derivation for its slot — or when its slot is
+// gone (orphaned). An orphaned group has no derived counterpart, so
+// its heading falls back to the stored recipe name.
+function groupShape(g: StoredGroup, derived: DerivedGroup | undefined) {
+  return {
+    id: g.id,
+    date: g.date,
+    meal: g.meal,
+    recipe_id: g.recipe_id,
+    recipe_name: derived ? derived.recipe_name : g.recipe_name,
+    stale: !derived || g.fingerprint !== derived.fingerprint,
+    orphaned: !derived,
+    has_ingredients: derived ? derived.has_ingredients : false,
+  };
+}
+
+// Resolve a derived line's group_key / covers (slot keys) to stored
+// group ids for the line row.
+function lineGroupIds(
+  line: DerivedLine,
+  groupIdByKey: Map<string, string>,
+): { group_id: string | null; covers: string[] } {
+  return {
+    group_id: line.group_key ? groupIdByKey.get(line.group_key) ?? null : null,
+    covers: (line.covers || [])
+      .map((key) => groupIdByKey.get(key))
+      .filter((id): id is string => Boolean(id)),
+  };
+}
+
+// Rebuild the derived (plan + pantry_out) lines for a run, merging
+// with the lines already there instead of deleting them outright.
+//   - a line that comes back identical (same item + quantity + unit)
+//     keeps its row — and its checked state — with only its group,
+//     covers and category refreshed;
+//   - a line whose quantity changed is replaced, unchecked;
+//   - a line that no longer derives is deleted;
+//   - a new line is inserted.
+// Manual and carry_over lines are never touched. targetKeys limits
+// the rebuild to lines the named groups contribute to (per-group
+// regenerate); null rebuilds every derived line (full regenerate).
+function rebuildDerivedLines(
+  k: KitchenEnv,
+  runId: string,
+  hid: string,
+  existing: any[],
+  derived: DeriveResult,
+  groupIdByKey: Map<string, string>,
+  keyByGroupId: Map<string, string>,
+  targetKeys: Set<string> | null,
+): { writes: D1PreparedStatement[]; affectedGroups: Set<string> } {
+  const writes: D1PreparedStatement[] = [];
+  const keyOf = (itemId: string | null, unit: string | null) => `${itemId ?? ""}|${unit ?? ""}`;
+  const oldPlan = existing.filter((l) => l.source === "plan" || l.source === "pantry_out");
+  const newPlan = derived.lines.filter((l) => l.source === "plan" || l.source === "pantry_out");
+  const oldByKey = new Map<string, any>();
+  for (const l of oldPlan) oldByKey.set(keyOf(l.item_id, l.unit), l);
+  const newByKey = new Map<string, DerivedLine>();
+  for (const l of newPlan) newByKey.set(keyOf(l.item_id, l.unit), l);
+
+  // Does this line carry a contribution from one of the target
+  // groups? Stored lines name groups by id (group_id + covers);
+  // derived lines name them by slot key (group_key + covers).
+  const oldContributes = (l: any): boolean => {
+    if (!targetKeys) return true;
+    const gid = l.group_id ? String(l.group_id) : null;
+    if (gid && targetKeys.has(keyByGroupId.get(gid) || "")) return true;
+    for (const c of parseGroupKeys(l.covers)) {
+      if (targetKeys.has(keyByGroupId.get(c) || "")) return true;
+    }
+    return false;
+  };
+  const newContributes = (l: DerivedLine): boolean => {
+    if (!targetKeys) return true;
+    if (l.group_key && targetKeys.has(l.group_key)) return true;
+    return (l.covers || []).some((key) => targetKeys.has(key));
+  };
+
+  const affected = new Set<string>();
+  for (const [key, l] of oldByKey) if (oldContributes(l)) affected.add(key);
+  for (const [key, l] of newByKey) if (newContributes(l)) affected.add(key);
+
+  // The slot keys whose lines this rebuild touched: the groups a
+  // rebuilt combined line aggregates (its owning group plus its
+  // covers, on both the stored and the derived side). A group in
+  // this set had its contribution recomputed from the current
+  // recipes, so its fingerprint may be refreshed; a group outside
+  // it was not rebuilt, so its fingerprint must stay — refreshing
+  // it would clear a stale banner for lines that are still old.
+  const affectedGroups = new Set<string>();
+  for (const key of affected) {
+    const old = oldByKey.get(key);
+    if (old) {
+      const gid = old.group_id ? String(old.group_id) : null;
+      if (gid) {
+        const k = keyByGroupId.get(gid);
+        if (k) affectedGroups.add(k);
+      }
+      for (const c of parseGroupKeys(old.covers)) {
+        const k = keyByGroupId.get(c);
+        if (k) affectedGroups.add(k);
+      }
+    }
+    const next = newByKey.get(key);
+    if (next) {
+      if (next.group_key) affectedGroups.add(next.group_key);
+      for (const c of next.covers || []) affectedGroups.add(c);
+    }
+  }
+
+  for (const key of affected) {
+    const old = oldByKey.get(key);
+    const next = newByKey.get(key);
+    if (old && next) {
+      const identical =
+        String(old.item_id) === String(next.item_id) &&
+        Number(old.quantity) === Number(next.quantity) &&
+        (old.unit ?? null) === (next.unit ?? null);
+      if (identical) {
+        const ids = lineGroupIds(next, groupIdByKey);
+        const oldCovers = JSON.stringify(parseGroupKeys(old.covers).sort());
+        const newCovers = JSON.stringify([...ids.covers].sort());
+        if (
+          (old.category ?? null) !== (next.category ?? null) ||
+          (old.group_id ?? null) !== ids.group_id ||
+          oldCovers !== newCovers
+        ) {
+          writes.push(
+            k.DB.prepare(
+              "UPDATE shop_list_items SET category = ?, group_id = ?, covers = ? WHERE id = ?",
+            ).bind(next.category, ids.group_id, JSON.stringify(ids.covers), String(old.id)),
+          );
+        }
+        continue;
+      }
+      writes.push(k.DB.prepare("DELETE FROM shop_list_items WHERE id = ?").bind(String(old.id)));
+      writes.push(insertLineStmt(k, runId, hid, { ...next, ...lineGroupIds(next, groupIdByKey) }));
+    } else if (old && !next) {
+      writes.push(k.DB.prepare("DELETE FROM shop_list_items WHERE id = ?").bind(String(old.id)));
+    } else if (!old && next) {
+      writes.push(insertLineStmt(k, runId, hid, { ...next, ...lineGroupIds(next, groupIdByKey) }));
+    }
+  }
+  return { writes, affectedGroups };
 }
 
 // Resolve a manual-add target to a canonical shop_items row. item_id
@@ -1695,12 +1842,12 @@ function insertLineStmt(
   k: KitchenEnv,
   runId: string,
   hid: string,
-  line: DerivedLine & { state?: string; carry_over?: number; added_by?: string | null },
+  line: DerivedLine & { state?: string; carry_over?: number; added_by?: string | null; group_id?: string | null },
 ): D1PreparedStatement {
   return k.DB.prepare(
     "INSERT INTO shop_list_items (id, run_id, household_id, item_id, display_name, quantity, unit, " +
-      "is_rounded, unrounded_quantity, category, state, source, source_recipe_id, source_date, sources, carry_over, added_by, created_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "is_rounded, unrounded_quantity, category, state, source, source_recipe_id, source_date, sources, carry_over, added_by, group_id, covers, created_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).bind(
     uid(),
     runId,
@@ -1719,6 +1866,8 @@ function insertLineStmt(
     JSON.stringify(line.sources || []),
     line.carry_over ?? 0,
     line.added_by ?? null,
+    line.group_id ?? null,
+    JSON.stringify(line.covers || []),
     nowIso(),
   );
 }
@@ -1751,6 +1900,8 @@ async function ensurePantryOutLine(k: KitchenEnv, hid: string, run: any, itemId:
     source_recipe_id: match ? match.source_recipe_id : null,
     source_date: match ? match.source_date : null,
     sources: match ? match.sources : [],
+    group_key: null,
+    covers: [],
   }).run();
   return true;
 }
@@ -1768,30 +1919,72 @@ async function getShop(request: Request, env: unknown, ctx: AuthContext | null) 
   const run = await runForWeek(k, auth.hid, weekStart);
   const lines = run ? await shopLinesForRun(k, String(run.id)) : [];
   const lastBought = await lastBoughtMap(k, auth.hid);
-  // plan_changed: recompute the fingerprint from the current plan; a
-  // mismatch on a non-finished run means the plan changed after this
-  // list was made. Finished runs are archived — plan changes don't
-  // apply to them — and a missing run has nothing to compare. The
-  // no-ingredients notice always reflects the current plan.
+  // Staleness (0.4.0) is per group: recompute the derivation and
+  // compare each stored group's fingerprint with the fresh one for
+  // its slot. plan_changed covers the cases a per-group button can't
+  // fix — the slot set changed (a meal added, removed or re-planned)
+  // or the run predates groups entirely (a legacy run has no groups
+  // while the plan has recipe slots). Finished runs are archived —
+  // plan changes don't apply to them — and a missing run has nothing
+  // to compare. The no-ingredients notice always reflects the
+  // current plan.
   let planChanged = false;
   let noIngredientRecipes: DeriveResult["noIngredientRecipes"] = [];
+  let groups: ReturnType<typeof groupShape>[] = [];
   if (run) {
     const derived = await deriveFromPlan(k, auth.hid, weekStart);
     noIngredientRecipes = derived.noIngredientRecipes;
-    planChanged =
-      String(run.status) !== "finished" &&
-      Boolean(run.plan_fingerprint) &&
-      run.plan_fingerprint !== derived.fingerprint;
+    const stored = await groupsForRun(k, String(run.id));
+    const derivedByKey = new Map(derived.groups.map((g) => [g.key, g]));
+    // Finished runs are archived and never go stale, but their lines
+    // still render grouped — so groups are returned with stale forced
+    // false instead of being left out.
+    groups = stored.map((g) => {
+      const shaped = groupShape(g, derivedByKey.get(groupKeyFor(g.date, g.meal)));
+      return String(run.status) === "finished" ? { ...shaped, stale: false } : shaped;
+    });
+    if (String(run.status) !== "finished") {
+      const storedKeys = new Set(stored.map((g) => groupKeyFor(g.date, g.meal)));
+      const missing = derived.groups.some((g) => !storedKeys.has(g.key));
+      const orphaned = stored.some((g) => !derivedByKey.has(groupKeyFor(g.date, g.meal)));
+      planChanged =
+        (Boolean(run.plan_fingerprint) && run.plan_fingerprint !== derived.fingerprint) ||
+        missing ||
+        orphaned;
+    }
   }
   return json({
     ok: true,
     week_start: weekStart,
     run: run ? runShape(run) : null,
     lines: lines.map((l) => lineShape(l, lastBought)),
+    groups,
     plan_changed: planChanged,
     no_ingredient_recipes: noIngredientRecipes,
     active_run_week_start: active ? String(active.week_start) : null,
   });
+}
+
+// The Shop payload after a generate / regenerate, in the same shape
+// as getShop so the client re-renders from one response.
+async function shopPayload(k: KitchenEnv, hid: string, weekStart: string, runId: string) {
+  const derived = await deriveFromPlan(k, hid, weekStart);
+  const run: any = await k.DB.prepare("SELECT * FROM shop_runs WHERE id = ?").bind(runId).first();
+  const lines = await shopLinesForRun(k, runId);
+  const lastBought = await lastBoughtMap(k, hid);
+  const stored = await groupsForRun(k, runId);
+  const derivedByKey = new Map(derived.groups.map((g) => [g.key, g]));
+  const groups = stored.map((g) => groupShape(g, derivedByKey.get(groupKeyFor(g.date, g.meal))));
+  const active = await activeRun(k, hid);
+  return {
+    ok: true,
+    run: runShape(run),
+    lines: lines.map((l) => lineShape(l, lastBought)),
+    groups,
+    plan_changed: false,
+    no_ingredient_recipes: derived.noIngredientRecipes,
+    active_run_week_start: active ? String(active.week_start) : null,
+  };
 }
 
 async function generateShop(request: Request, env: unknown, ctx: AuthContext | null) {
@@ -1812,14 +2005,30 @@ async function generateShop(request: Request, env: unknown, ctx: AuthContext | n
   const writes: D1PreparedStatement[] = [];
   if (active) {
     runId = String(active.id);
-    // Regenerate in place: derived (plan + pantry_out) lines are
-    // rebuilt from the current plan; manual and carry_over lines stay
-    // (a planner's own lines survive a re-plan; checked state on a
-    // rebuilt plan line is lost with it, which is what Regenerate
-    // means). Carry-over flags consumed here are cleared in this same
-    // batch, so a second regenerate cannot re-append them.
+    // Regenerate in place: the derived lines are merged with the
+    // lines already there (see rebuildDerivedLines) — a line that
+    // comes back identical keeps its checked state; a changed line
+    // is replaced unchecked. Manual and carry_over lines stay. The
+    // groups are rebuilt from the current derivation, and the run
+    // fingerprint is refreshed. Carry-over flags consumed here are
+    // cleared in this same batch, so a second regenerate cannot
+    // re-append them.
+    const existing = await shopLinesForRun(k, runId);
+    writes.push(k.DB.prepare("DELETE FROM shop_list_groups WHERE run_id = ?").bind(runId));
+    const groupIdByKey = new Map<string, string>();
+    for (const g of derived.groups) {
+      const id = uid();
+      groupIdByKey.set(g.key, id);
+      writes.push(
+        k.DB.prepare(
+          "INSERT INTO shop_list_groups (id, run_id, household_id, date, meal, recipe_id, fingerprint, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(id, runId, auth.hid, g.date, g.meal, g.recipe_id, g.fingerprint, now),
+      );
+    }
+    const keyByGroupId = new Map([...groupIdByKey.entries()].map(([key, id]) => [id, key] as const));
     writes.push(
-      k.DB.prepare("DELETE FROM shop_list_items WHERE run_id = ? AND source IN ('plan', 'pantry_out')").bind(runId),
+      ...rebuildDerivedLines(k, runId, auth.hid, existing, derived, groupIdByKey, keyByGroupId, null).writes,
       k.DB.prepare(
         "UPDATE shop_runs SET plan_id = ?, week_start = ?, plan_fingerprint = ? WHERE id = ?",
       ).bind(derived.planId, weekStart, derived.fingerprint, runId),
@@ -1832,22 +2041,120 @@ async function generateShop(request: Request, env: unknown, ctx: AuthContext | n
           "VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)",
       ).bind(runId, auth.hid, derived.planId, weekStart, derived.fingerprint, auth.userId, now),
     );
+    const groupIdByKey = new Map<string, string>();
+    for (const g of derived.groups) {
+      const id = uid();
+      groupIdByKey.set(g.key, id);
+      writes.push(
+        k.DB.prepare(
+          "INSERT INTO shop_list_groups (id, run_id, household_id, date, meal, recipe_id, fingerprint, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(id, runId, auth.hid, g.date, g.meal, g.recipe_id, g.fingerprint, now),
+      );
+    }
+    for (const line of derived.lines) {
+      writes.push(
+        insertLineStmt(k, runId, auth.hid, { ...line, ...lineGroupIds(line, groupIdByKey) }),
+      );
+    }
   }
-  for (const line of derived.lines) writes.push(insertLineStmt(k, runId, auth.hid, line));
   for (const srcId of derived.carryOverSourceIds) {
     writes.push(k.DB.prepare("UPDATE shop_list_items SET carry_over = 0 WHERE id = ?").bind(srcId));
   }
   await k.DB.batch(writes);
-  const run: any = await k.DB.prepare("SELECT * FROM shop_runs WHERE id = ?").bind(runId).first();
-  const lines = await shopLinesForRun(k, runId);
-  const lastBought = await lastBoughtMap(k, auth.hid);
-  return json({
-    ok: true,
-    run: runShape(run),
-    lines: lines.map((l) => lineShape(l, lastBought)),
-    no_ingredient_recipes: derived.noIngredientRecipes,
-    regenerated,
-  });
+  const payload = await shopPayload(k, auth.hid, weekStart, runId);
+  return json({ ...payload, regenerated });
+}
+
+// Regenerate one stale group: rebuild only the lines that group
+// contributes to, from the current recipes. Other groups' lines,
+// manual lines and carry-over lines are untouched. A group whose slot
+// is gone (orphaned) is removed with its lines — the list-level
+// Regenerate covers the same case, this is the per-group path for
+// it. Finished runs never go stale, so there is nothing to
+// regenerate on one.
+async function regenerateGroup(request: Request, env: unknown, ctx: AuthContext | null) {
+  const auth = requireHousehold(ctx);
+  if (auth instanceof Response) return auth;
+  const k = env as KitchenEnv;
+  const body = await readBody(request);
+  const weekDate = parseDate(String(body.week_start || ""));
+  if (!weekDate || weekDate.getUTCDay() !== 1) return err("invalid_week", 400);
+  const weekStart = fmtDate(weekDate);
+  const date = typeof body.date === "string" ? body.date : "";
+  const meal = typeof body.meal === "string" ? body.meal : "";
+  if (!parseDate(date) || !MEALS.includes(meal as (typeof MEALS)[number])) {
+    return err("group_required", 400);
+  }
+  const run = await runForWeek(k, auth.hid, weekStart);
+  if (!run || String(run.status) === "finished") return err("no_active_run", 404);
+  const runId = String(run.id);
+  const targetKey = groupKeyFor(date, meal);
+  const stored = await groupsForRun(k, runId);
+  const target = stored.find((g) => groupKeyFor(g.date, g.meal) === targetKey);
+  if (!target) return err("group_not_found", 404);
+  const derived = await deriveFromPlan(k, auth.hid, weekStart);
+  const derivedByKey = new Map(derived.groups.map((g) => [g.key, g]));
+  const existing = await shopLinesForRun(k, runId);
+  const now = nowIso();
+  const writes: D1PreparedStatement[] = [];
+  // Upsert the groups table from the fresh derivation, in two
+  // phases. First, insert groups for slots added since the list was
+  // made, so a combined line can point at them (this also populates
+  // groupIdByKey for the rebuild below). Then rebuild the target
+  // group's lines and refresh fingerprints ONLY for the groups that
+  // rebuild actually touched — the target group plus any group
+  // contributing to a rebuilt combined line (see affectedGroups).
+  // A group outside that set keeps its stored fingerprint, so its
+  // stale banner survives until its own lines are rebuilt.
+  const groupIdByKey = new Map<string, string>();
+  const keyByGroupId = new Map<string, string>();
+  for (const g of stored) {
+    groupIdByKey.set(groupKeyFor(g.date, g.meal), g.id);
+    keyByGroupId.set(g.id, groupKeyFor(g.date, g.meal));
+  }
+  for (const g of derived.groups) {
+    if (groupIdByKey.has(g.key)) continue;
+    const id = uid();
+    groupIdByKey.set(g.key, id);
+    keyByGroupId.set(id, g.key);
+    writes.push(
+      k.DB.prepare(
+        "INSERT INTO shop_list_groups (id, run_id, household_id, date, meal, recipe_id, fingerprint, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(id, runId, auth.hid, g.date, g.meal, g.recipe_id, g.fingerprint, now),
+    );
+  }
+  const { writes: lineWrites, affectedGroups } = rebuildDerivedLines(
+    k,
+    runId,
+    auth.hid,
+    existing,
+    derived,
+    groupIdByKey,
+    keyByGroupId,
+    new Set([targetKey]),
+  );
+  writes.push(...lineWrites);
+  const refreshKeys = new Set([...affectedGroups, targetKey]);
+  for (const g of derived.groups) {
+    if (!refreshKeys.has(g.key)) continue;
+    const existingId = groupIdByKey.get(g.key);
+    if (!existingId) continue;
+    writes.push(
+      k.DB.prepare(
+        "UPDATE shop_list_groups SET recipe_id = ?, fingerprint = ? WHERE id = ?",
+      ).bind(g.recipe_id, g.fingerprint, existingId),
+    );
+  }
+  if (!derivedByKey.has(targetKey)) {
+    // The slot is gone: the rebuild above removed the group's
+    // contribution from the combined lines; drop the group itself.
+    writes.push(k.DB.prepare("DELETE FROM shop_list_groups WHERE id = ?").bind(target.id));
+  }
+  await k.DB.batch(writes);
+  const payload = await shopPayload(k, auth.hid, weekStart, runId);
+  return json({ ...payload, regenerated_group: targetKey });
 }
 
 async function addShopLine(request: Request, env: unknown, ctx: AuthContext | null) {
@@ -2238,6 +2545,7 @@ export const kitchenApiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/kitchen/next-meal", handler: getNextMeal },
   { method: "GET", path: "/api/kitchen/shop", handler: getShop },
   { method: "POST", path: "/api/kitchen/shop/generate", handler: generateShop },
+  { method: "POST", path: "/api/kitchen/shop/regenerate-group", handler: regenerateGroup },
   { method: "POST", path: "/api/kitchen/shop/lines", handler: addShopLine },
   { method: "PATCH", path: "/api/kitchen/shop/lines", handler: updateShopLine },
   { method: "DELETE", path: "/api/kitchen/shop/lines", handler: deleteShopLine },
