@@ -1,0 +1,84 @@
+/* Haven components (canvas › Components). Tokens only. */
+.h-btn { position: relative; min-height: var(--haven-space-min-target); padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: var(--haven-shape-pill-radius); border: var(--haven-shape-border-width) solid transparent; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; box-shadow: var(--haven-shadow); }
+.h-btn::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+@media (hover: hover) { .h-btn:not([disabled]):hover::after { background: var(--haven-overlay-hover); } }
+.h-btn:not([disabled]):active::after { background: var(--haven-overlay-pressed); }
+.h-btn[disabled] { background: var(--haven-disabled-bg) !important; color: var(--haven-disabled-text) !important; border-color: var(--haven-disabled-bg) !important; box-shadow: none; cursor: not-allowed; }
+.h-btn--primary { background: var(--haven-accent); color: var(--haven-on-accent); border-color: var(--haven-accent); }
+.h-btn--secondary { background: var(--haven-surface); color: var(--haven-ink); border-color: var(--haven-muted); }
+.h-btn--danger { background: var(--haven-danger); color: var(--haven-on-danger); border-color: var(--haven-danger); }
+.h-btn--text { background: transparent; color: var(--haven-ink); box-shadow: none; padding: 0 10px; }
+.h-btn--block { width: 100%; }
+.h-spin { width: 18px; height: 18px; animation: h-spin 0.8s linear infinite; }
+@keyframes h-spin { to { transform: rotate(360deg); } }
+
+.h-field { display: flex; flex-direction: column; gap: 6px; }
+.h-field__label { font-size: var(--haven-type-meta); font-weight: 600; color: var(--haven-muted); }
+.h-input { min-height: var(--haven-space-min-target); box-sizing: border-box; padding: 0 12px; border-radius: var(--haven-shape-radius); border: var(--haven-shape-border-width) solid var(--haven-muted);
+  background: var(--haven-surface); color: var(--haven-ink); font: inherit; width: 100%; }
+textarea.h-input { padding: 10px 12px; resize: vertical; }
+.h-input[aria-invalid="true"] { border: 2px solid var(--haven-danger); }
+.h-field__msg { font-size: var(--haven-type-meta); font-weight: 600; color: var(--haven-muted); }
+.h-field__msg--error { color: var(--haven-danger); }
+
+.h-header { min-height: 60px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid var(--haven-border); }
+.h-header__title { flex: 1; margin: 0; font-size: 17px; font-family: var(--haven-font-heading); font-weight: var(--haven-shape-heading-weight); }
+.h-modhead { padding: 20px 16px 8px; display: flex; align-items: center; gap: 2px; }
+.h-modhead__eyebrow { font-size: 11px; font-weight: 700; color: var(--haven-accent); letter-spacing: 0.06em; }
+.h-modhead h1 { margin: 0; font-size: 26px; }
+.h-icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--haven-ink); border-radius: var(--haven-shape-radius); cursor: pointer; }
+
+.h-tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--haven-surface); border-top: 1px solid var(--haven-border);
+  padding-bottom: env(safe-area-inset-bottom, 0px); }
+.h-tabbar a { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--haven-muted); font-size: 12px; text-decoration: none; }
+.h-tabbar a[aria-current="page"] { color: var(--haven-accent); font-weight: 700; }
+
+.h-card { background: var(--haven-surface); border: var(--haven-shape-border-width) solid var(--haven-border); border-radius: var(--haven-shape-radius); box-shadow: var(--haven-shadow); }
+.h-row { min-height: var(--haven-shape-row-height); display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--haven-surface); color: var(--haven-ink);
+  border: var(--haven-shape-border-width) solid var(--haven-border); border-radius: var(--haven-shape-radius); text-decoration: none; }
+.h-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.h-row__title { font-weight: 600; overflow-wrap: anywhere; }
+.h-row__sub { font-size: var(--haven-type-meta); color: var(--haven-muted); }
+.h-section-title { margin: 0; font-size: var(--haven-type-small); font-weight: 700; color: var(--haven-muted); }
+.h-stack { display: flex; flex-direction: column; gap: 8px; }
+
+.h-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; border: 1px solid transparent; white-space: nowrap; }
+.h-chip { min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--haven-muted); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.h-chip[aria-pressed="true"], .h-chip[aria-checked="true"] { background: var(--haven-ink); color: var(--haven-bg); border-color: var(--haven-ink); }
+
+.h-switch { width: 52px; height: 32px; border-radius: 16px; border: 0; padding: 0; position: relative; background: var(--haven-muted); cursor: pointer; flex-shrink: 0; }
+.h-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 13px; background: var(--haven-surface); transition: left var(--haven-motion-check); }
+.h-switch[aria-checked="true"] { background: var(--haven-accent); }
+.h-switch[aria-checked="true"]::after { left: 23px; background: var(--haven-on-accent); }
+
+.h-stepper { display: inline-flex; align-items: center; border: var(--haven-shape-border-width) solid var(--haven-muted); border-radius: 22px; background: var(--haven-surface); }
+.h-stepper button { width: 44px; height: 40px; border: 0; background: transparent; color: var(--haven-ink); font-size: 20px; cursor: pointer; }
+.h-stepper button[disabled] { color: var(--haven-disabled-text); cursor: not-allowed; }
+.h-stepper output { min-width: 22px; text-align: center; font-weight: 700; }
+
+.h-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border: 1px solid var(--haven-border); border-radius: var(--haven-shape-radius); background: var(--haven-surface); }
+.h-seg button { min-height: 40px; border: 0; border-radius: var(--haven-shape-radius); background: transparent; color: var(--haven-muted); font: inherit; font-weight: 700; cursor: pointer; }
+.h-seg button[aria-checked="true"] { background: var(--haven-ink); color: var(--haven-bg); }
+
+.h-scrim { position: fixed; inset: 0; background: var(--haven-overlay-scrim); z-index: 50; }
+.h-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 51; max-height: 90vh; overflow-y: auto; background: var(--haven-bg); border-radius: 22px 22px 0 0;
+  border-top: var(--haven-shape-outline-width) solid var(--haven-border); padding: 8px 16px calc(24px + env(safe-area-inset-bottom, 0px)); animation: h-up var(--haven-motion-sheet-open) both; }
+.h-sheet__handle { width: 40px; height: 5px; border-radius: 3px; background: var(--haven-muted); opacity: 0.5; margin: 0 auto 8px; }
+.h-dialog { position: fixed; z-index: 51; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); max-width: 480px; margin: 0 auto; background: var(--haven-surface); border-radius: 18px;
+  border: var(--haven-shape-outline-width) solid var(--haven-border); padding: 20px; display: flex; flex-direction: column; gap: 12px; animation: h-fade var(--haven-motion-dialog) both; }
+@keyframes h-up { from { transform: translateY(100%); } }
+@keyframes h-fade { from { opacity: 0; } }
+@media (min-width: 1024px) { .h-sheet { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 480px; border-radius: 18px; animation-name: h-fade; } }
+
+.h-pill { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-radius: 20px; background: var(--haven-ink); color: var(--haven-bg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.h-pill__dot { width: 8px; height: 8px; border-radius: 4px; background: var(--haven-accent-2); }
+.h-toast { position: fixed; left: 12px; right: 12px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); z-index: 60; max-width: 480px; margin: 0 auto; padding: 14px; border-radius: 16px;
+  background: var(--haven-ink); color: var(--haven-bg); display: flex; flex-direction: column; gap: 10px; }
+
+.h-empty { border: 1.5px dashed var(--haven-muted); border-radius: var(--haven-shape-radius); padding: 18px; text-align: center; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.h-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.h-skeleton { background: var(--haven-disabled-bg); border-radius: 6px; }
+
+@media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }

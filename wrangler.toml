@@ -1,39 +1,62 @@
-# Haven Worker — one Worker serving the SPA and the API (spec §11).
+# Haven app Worker — serves the PWA and the API (Technical spec › Architecture).
+# Deployed by Workers Builds on push to main: `npm run build` then `npx wrangler deploy`.
+# The admin site is a second Worker from the same code: see wrangler.admin.toml.
 name = "haven"
-main = "shell/src/index.ts"
+main = "worker/src/index.ts"
 compatibility_date = "2026-11-19"
 compatibility_flags = ["nodejs_compat"]
 
-# Build: assemble dist/ (shell assets + module client chunks) before deploy.
-# Workers Builds runs this command, then `npx wrangler deploy`.
 [build]
 command = "npm run build"
 
-# Static assets: the assembled SPA in dist/. run_worker_first makes the
-# Worker authoritative for every request (local dev and the edge behave the
-# same): /api/* is answered as JSON, a matching asset is served via the
-# ASSETS binding, and everything else falls back to index.html for
-# client-side routes. Without it, unmatched non-API paths are answered by
-# the assets layer itself (a 307 redirect to / in local dev) and never
-# reach the Worker's SPA fallback.
+# The Worker answers every request: /api/* and /auth/*, the Google redirect back to "/",
+# and everything else from the ASSETS binding with the SPA fallback.
 [assets]
-directory = "./dist"
+directory = "./apps/web/dist"
 binding = "ASSETS"
 run_worker_first = true
+not_found_handling = "single-page-application"
 
-# D1 — one database for the whole app (spec §11). Tables are prefixed per
-# module (cook_*, shop_*); shell tables are unprefixed.
-# Database recreated 2026-11-20 with an APAC primary (was ENAM, ~250ms/query):
-# old DB 6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15 deleted; id below is the new one.
+# One database for app and admin. Migrations: 0001_shell.sql (MVP, already applied),
+# 0002 removes the MVP tables, 0003 creates Haven v1.
 [[d1_databases]]
 binding = "DB"
 database_name = "haven-apac"
 database_id = "add5f3b5-e586-410d-9c44-0c3b7b038795"
-migrations_dir = "shell/migrations"
+migrations_dir = "worker/migrations"
 
-# Observability: keep invocation logs enabled (Don't Ngiao lesson, Nov 2026).
-# With logs persisted, a failing request shows its server-side exception in
-# Workers > haven > Logs instead of being masked as a generic load failure.
+[[durable_objects.bindings]]
+name = "HOUSEHOLD"
+class_name = "Household"
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "Limiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Household", "Limiter"]
+
+[[analytics_engine_datasets]]
+binding = "EVENTS"
+dataset = "haven_events"
+
+# Recipe photos are off for now (decision, Nov 2026). To turn them on: enable R2,
+# create the bucket (npx wrangler r2 bucket create haven-photos), then uncomment:
+# [[r2_buckets]]
+# binding = "PHOTOS"
+# bucket_name = "haven-photos"
+
+[vars]
+ADMIN_MODE = "0"
+PROTOCOL_VERSION = "1"
+# Public by design (it appears in the Google sign-in URL). The secret is GOOGLE_CLIENT_SECRET,
+# already set in the dashboard.
+GOOGLE_CLIENT_ID = "710021216622-hp6scvlvmm2q05adlrd5sijm2qltsanh.apps.googleusercontent.com"
+
+[triggers]
+crons = ["0 3 * * *"]
+
 [observability.logs]
 enabled = true
 head_sampling_rate = 1

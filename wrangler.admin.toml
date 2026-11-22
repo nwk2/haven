@@ -1,0 +1,50 @@
+# Haven admin Worker — same code, ADMIN_MODE = "1", at haven-admin.wk-io.workers.dev.
+# Workers Builds: connect this repo a second time with deploy command
+#   npx wrangler deploy -c wrangler.admin.toml
+# Deploy the app Worker (wrangler.toml) first: admin uses its Durable Objects.
+# Secrets (dashboard): GOOGLE_CLIENT_SECRET, ADMIN_EMAIL, ADMIN_SETUP_CODE;
+# optional CF_API_TOKEN + CF_ACCOUNT_ID for usage figures in Health.
+name = "haven-admin"
+main = "worker/src/index.ts"
+compatibility_date = "2026-11-19"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "npm run build"
+
+[assets]
+directory = "./apps/admin/dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "single-page-application"
+
+# Must be the same database as wrangler.toml.
+[[d1_databases]]
+binding = "DB"
+database_name = "haven-apac"
+database_id = "add5f3b5-e586-410d-9c44-0c3b7b038795"
+migrations_dir = "worker/migrations"
+
+[[durable_objects.bindings]]
+name = "HOUSEHOLD"
+class_name = "Household"
+script_name = "haven"
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "Limiter"
+script_name = "haven"
+
+[vars]
+ADMIN_MODE = "1"
+PROTOCOL_VERSION = "1"
+GOOGLE_CLIENT_ID = "710021216622-hp6scvlvmm2q05adlrd5sijm2qltsanh.apps.googleusercontent.com"
+
+[triggers]
+crons = ["0 12,20 * * *"]
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true

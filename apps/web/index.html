@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="market" data-mode="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FBFAF6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141815" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="/apple-touch-icon-180.png">
+  <title>Haven</title>
+  <script>
+    // Theme before first paint (PRD › Base theme and the sign-in handoff):
+    // sign-in screens always use the base theme; signed-in routes use the
+    // cache keyed to the last user, confirmed later from /api/me.
+    (function () {
+      try {
+        var p = location.pathname, html = document.documentElement;
+        if (p.indexOf("/login") === 0 || p.indexOf("/join") === 0) return;
+        var uid = localStorage.getItem("haven:lastUser");
+        var t = uid && JSON.parse(localStorage.getItem("haven:theme:" + uid) || "null");
+        if (t && /^(market|tomato|night)$/.test(t.theme)) html.dataset.theme = t.theme;
+        if (t && /^(system|light|dark)$/.test(t.mode)) html.dataset.mode = t.mode;
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

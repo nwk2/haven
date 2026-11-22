@@ -1,115 +1,54 @@
 # Haven
 
-One household app — a progressive web app (PWA) shell with pluggable modules.
-The Weekly Cook Board is module 1, as one Kitchen module (Plan / Today / Shop /
-Recipes / Pantry).
+One household app: a PWA console with pluggable modules. Module 1 is Meals & Groceries.
+Spec: the "Haven — PRD" doc (Product and design · Technical spec · Privacy · Terms).
+Mockups: the "Haven — Mockups" canvas.
 
-Specs (frozen, for review): Haven spec v0.15 and Cook Board spec v0.14, in
-`~/workspace/goals/shared-shopping-list/files/`. The build plan (8 batches 0–7)
-is `haven-build-plan.pdf` next to them; batch progress is tracked in
-`STATUS.md` in the same folder — the plan PDF is the frozen approved snapshot
-and is not rebuilt per batch.
+This replaces the 0.4.0 MVP (decision, Nov 2026: MVP data is throwaway).
 
-## Status
+## Layout
 
-**Batch 0 — scaffold + prove the deploy loop: DONE.** **Batch 1 — shell,
-Editorial tokens, home screen: in progress.** See `STATUS.md` for the live
-state. Each batch gets its own go-ahead before it is pushed; a push needs
-Wai's tap, and nothing pushes while he is away.
-
-## Layout (spec §11)
-
-```
-shell/                  The shell: Worker entry, SPA, shell migrations.
-  src/index.ts          Worker entry — serves the SPA + /api/* routes.
-  public/               Shell static assets (assembled into dist/ by the build).
-  migrations/           Shell D1 migrations (users, sessions, households,
-                        household_members, modules registry,
-                        push_subscriptions, events).
-modules/kitchen/        Module 1: Kitchen. Client routes, server routes and
-  client/               migrations live together in the module's folder.
-  server/
-  migrations/           Kitchen migrations land here in Batch 3.
-shared/                 Shared tokens and components (Batch 1):
-                        tokens.css, components.css, components.js
-                        (sheet + confirm prompt), shell-logic.js
-                        (pure, Node-tested helpers: theme, greeting,
-                        tiles, widgets).
-scripts/build.mjs       Assembles dist/ from shell/public + shared/* +
-                        every modules/*/client chunk (generic — adding a
-                        module needs no build change).
-scripts/smoke-test.mjs  Node tests for the pure shell logic; with
-                        --modules-url also checks a running server's
-                        registry + chunks.
-wrangler.toml           One Worker (haven), one D1 (haven), assets in dist/.
-```
-
-One Worker serves the SPA and the API. One D1 database, prefixed tables per
-module (`cook_*`, `shop_*`), per-module migrations. A module earns its own
-Worker only on load, isolation or deploy-risk grounds.
+| Path | What |
+| --- | --- |
+| `worker/` | One codebase, two Workers. Hono API, Google sign-in (PKCE), sessions, households, invites, rate limits, Household Durable Object (ordered sync, dedupe, versioning, presence, admin signals), admin API with passkeys, crons. |
+| `worker/migrations/` | `0002_drop_mvp.sql` removes the MVP tables; `0003_init.sql` creates Haven v1. (`0001_shell.sql` is the MVP's, already recorded as applied in `haven-apac`.) |
+| `apps/web/` | The household app (PWA). |
+| `apps/admin/` | The admin site. |
+| `modules/meals/` | Meals & Groceries screens. |
+| `packages/meals-core/` | Shopping windows, scaling, units, rounding, list states, ingredient parser (28 tests). |
+| `packages/sync/`, `packages/ui/`, `packages/tokens/` | Sync client, components, theme tokens. |
+| `wrangler.toml` | App Worker `haven` → haven.wk-io.workers.dev |
+| `wrangler.admin.toml` | Admin Worker `haven-admin` → haven-admin.wk-io.workers.dev |
 
 ## Run locally
 
 ```text
 npm install
+npm run build
+npm test
 npm run typecheck
-npm run build        # assembles dist/
-npm run test         # Node smoke tests for the pure shell logic
+npm run db:migrate:local
+cp worker/.dev.vars.example .dev.vars    # GOOGLE_CLIENT_SECRET, and ADMIN_EMAIL / ADMIN_SETUP_CODE for admin
+npm run dev                               # app on http://localhost:8787
+npm run dev:admin                         # admin on http://localhost:8788
 ```
 
-Local dev needs the shell and kitchen migrations in the local D1 first
-(wrangler dev does not apply them on its own):
+## Go live (one time)
 
-```text
-npx wrangler d1 migrations apply haven-apac --local -y
-npx wrangler d1 execute haven-apac --local --file modules/kitchen/migrations/0001_kitchen.sql
-npm run dev          # wrangler dev --local (local D1, no remote state)
-```
+1. **Google Cloud Console** › the existing OAuth client › add redirect URI `https://haven-admin.wk-io.workers.dev/`. (The app keeps `https://haven.wk-io.workers.dev/`; sign-in still returns to `/`.)
+2. **Push** this branch to `main`. Workers Builds runs `npm run build` and deploys `haven` (now with Durable Objects).
+3. **Migrate** right after the deploy: `npm run db:migrate` (applies 0002 then 0003 to `haven-apac`). Between deploy and migrate the app errors; everyone signs in again afterwards.
+4. **Admin Worker**: Workers & Pages › Create › connect this repo again; build command `npm run build`, deploy command `npx wrangler deploy -c wrangler.admin.toml`. Set its secrets in the dashboard: `GOOGLE_CLIENT_SECRET` (same value as the app), `ADMIN_EMAIL`, `ADMIN_SETUP_CODE` (long random code). Optional: `CF_API_TOKEN` (Account Analytics: Read) and `CF_ACCOUNT_ID` for usage figures.
+5. Open https://haven-admin.wk-io.workers.dev, sign in with Google, enter the setup code, create a passkey; add a second passkey from Account.
 
-Then open http://localhost:8787 — `/api/health` returns
-`{"ok":true,"service":"haven","version":"0.1.2"}` and the home screen
-renders its tiles from `/api/modules`.
+## Switched off for now
 
-## Deploy loop (Don't Ngiao precedent)
+- **Recipe photos** (decision, Nov 2026): enable R2, `npx wrangler r2 bucket create haven-photos`, then uncomment the `[[r2_buckets]]` block in `wrangler.toml` (and add it to `wrangler.admin.toml` if wanted). The app shows the photo field only when the binding exists.
+- **Email** for feedback and usage alerts (decision, Nov 2026): needs a domain on Cloudflare (Email Routing). Until then both show in admin.
 
-Push to `main` → Workers Builds deploys → check the deployment actually
-advanced (`cf.py deployments` / `cf.py versions`: latest `created_on` after
-the push, version numbers incrementing) → apply migrations in the agreed
-order → verify live.
+## Known gaps
 
-Migration sequencing: adding a column — migration first, then code that uses
-it; removing a column — code first, deploy, then drop it. Migrations are
-applied with the Cloudflare helper (it replicates
-`wrangler d1 migrations apply --remote`):
-
-```text
-python3 ~/workspace/custom-connectors/custom.cloudflare/bin/cf.py \
-  --account 6439147f0ae67010881c1eaac02aca30 \
-  --db <haven-d1-uuid> --migrations-dir shell/migrations migrations-apply
-```
-
-Per-module migrations are applied the same way with that module's
-`--migrations-dir`, after the shell migrations, in dependency order.
-
-## Dashboard steps only Wai can do
-
-1. **Create the D1 database** — done 2026-11-20 (`haven`,
-   `6e60ddbf-ad98-4a12-ac7f-1d4d3f38af15`).
-2. **Connect the repo to Workers Builds** — done 2026-11-20 (build
-   `npm ci && npm run build`, deploy `npx wrangler deploy`).
-3. **Google OAuth client + consent screen** — before Batch 2 (create during
-   Batches 0–1; review can take time). Client created 2026-11-20; the
-   secret goes in as a Worker secret (`GOOGLE_CLIENT_SECRET`) in Batch 2.
-4. **R2 activation (billing profile / card on file)** — before Batch 6.
-
-## Rules carried across batches
-
-- No login in Batch 0 — a temporary local-only bypass, removed in Batch 2.
-  No auth, no user data yet; the shell page and `/api/health` are public.
-- Never commit secrets. Worker secrets go through the proper secret flow,
-  never files.
-- Authenticated endpoints get probed on every live verification (Dispatch
-  lesson). iOS behaviour is proven on a real iPhone, never from Safari or
-  a desktop check.
-- Free tier only. Household-scoped queries with `household_id` leading
-  composite indexes keep D1 rows-read cheap.
+- The usage cron's GraphQL query hasn't run against the live account yet; check admin Health after the first 12:00/20:00 UTC run.
+- Health shows D1-based counts; the PRD's percentage metrics need reading Analytics Engine via its SQL API (events are already written).
+- Ingredient reordering uses ↑/↓ buttons instead of drag; the unit hint names the usual unit without suggesting an amount.
+- Launch checklist items still open: accessibility and real-device passes, legal placeholders.

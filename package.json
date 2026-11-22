@@ -1,1 +1,31 @@
-{"description":"Haven \u2014 one household app: PWA shell with pluggable modules. Kitchen is module 1.","devDependencies":{"@cloudflare/workers-types":"^5.20261118.1","typescript":"^5.9.2","wrangler":"^4.161.0"},"name":"haven","private":true,"scripts":{"build":"node scripts/build.mjs","deploy":"wrangler deploy","dev":"wrangler dev --local","typecheck":"tsc --noEmit","test":"node scripts/smoke-test.mjs"},"type":"module","version":"0.4.0"}
+{
+  "name": "haven",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Haven \u2014 one household app: PWA console with pluggable modules. Meals & Groceries is module 1.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "modules/*",
+    "apps/*",
+    "worker"
+  ],
+  "scripts": {
+    "build": "npm run build -w @haven/tokens && npm run build -w @haven/web && npm run build -w @haven/admin",
+    "test": "npm run test -w @haven/meals-core && npm run test -w @haven/worker",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "wrangler dev --local --persist-to .state",
+    "dev:admin": "wrangler dev -c wrangler.admin.toml --local --port 8788 --persist-to .state",
+    "db:migrate:local": "wrangler d1 migrations apply haven-apac --local --persist-to .state",
+    "db:migrate": "wrangler d1 migrations apply haven-apac --remote",
+    "deploy": "wrangler deploy",
+    "deploy:admin": "wrangler deploy -c wrangler.admin.toml"
+  },
+  "devDependencies": {
+    "wrangler": "^4.161.0",
+    "typescript": "^5.9.2",
+    "@cloudflare/workers-types": "^5.20261119.1",
+    "vitest": "^5.1.1",
+    "@types/node": "^22.10.0"
+  }
+}
