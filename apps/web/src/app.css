@@ -24,7 +24,7 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .dot { position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 5px; background: var(--haven-accent); border: 2px solid var(--haven-bg); }
 .dot.inline { position: static; display: inline-block; margin-left: 8px; vertical-align: middle; }
 .avatar { width: 36px; height: 36px; border-radius: 18px; background: var(--haven-accent); color: var(--haven-on-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-.settings-row { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+.settings-row { width: 100%; box-sizing: border-box; font: inherit; text-align: left; cursor: pointer; }
 .settings-row.danger .h-row__title { color: var(--haven-danger); }
 .error { margin: 0; color: var(--haven-danger); font-weight: 600; font-size: 13px; }
 .theme-option { width: 100%; font: inherit; text-align: left; cursor: pointer; border-width: 2px; }
