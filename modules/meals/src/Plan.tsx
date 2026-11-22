@@ -66,7 +66,7 @@ export function Plan() {
           <section key={g.key + g.days[0]} style={{ "--n": g.days.length } as React.CSSProperties} className={`trip-group ${isNone ? (upcomingMeals.length ? "trip-none" : "trip-plain") : `trip-${g.color + 1}`}`}>
             {!isNone && g.trip && <div className="trip-group__head"><strong>Shop {fmt(g.trip.date)}</strong><span>{plural(g.days.flatMap(mealsOn).length, "meal")}</span></div>}
             {isNone && upcomingMeals.length > 0 && (
-              <div className="trip-group__head"><strong>Not on a list · {upcomingMeals.length} {upcomingMeals.length === 1 ? "meal" : "meals"}</strong>
+              <div className="trip-group__head"><strong>To be shopped · {upcomingMeals.length} {upcomingMeals.length === 1 ? "meal" : "meals"}</strong>
                 <Button variant="secondary" onClick={() => toggleShop(g.days.find((x) => x >= today && mealsOn(x).length) ?? today)}>{g.days.includes(today) ? "Shop today" : `Shop on ${fmt(g.days.find((x) => mealsOn(x).length)!)}`}</Button></div>
             )}
             {g.days.map((day) => {
