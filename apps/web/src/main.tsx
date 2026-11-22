@@ -1,7 +1,7 @@
 import "@haven/tokens/tokens.css";
 import "@haven/ui/ui.css";
 import "./app.css";
-import { lazy, StrictMode, Suspense, useEffect } from "react";
+import { lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SyncPill } from "./components/SyncPill";
@@ -28,6 +28,16 @@ function Meals() {
 
 function SignIn() {
   const error = new URLSearchParams(useLocation().search).get("error");
+  const [token, setToken] = useState("");
+  const [tokenError, setTokenError] = useState("");
+  const signInWithToken = () => {
+    const t = token.trim();
+    if (!t) { setTokenError("Paste a session token first."); return; }
+    // No HttpOnly here: a JS-set cookie cannot carry it, but the Worker only
+    // reads the Cookie header, so this still signs the probe session in.
+    document.cookie = `__Host-haven_session=${t}; Path=/; Secure; SameSite=Lax`;
+    window.location.reload();
+  };
   return (
     <main className="center">
       <img src="/icon-192-maskable.png" alt="" width={64} height={64} className="mark" />
@@ -38,6 +48,25 @@ function SignIn() {
       <p className="muted">One shared place for your household — starting with meals and groceries.</p>
       <a className="h-btn h-btn--secondary" href="/auth/google">Continue with Google</a>
       <p className="muted" style={{ fontSize: 12 }}>We use only your Google name, email and photo.</p>
+      <details style={{ width: "100%", maxWidth: 320 }}>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: 13 }}>Use a session token</summary>
+        <div className="h-stack" style={{ marginTop: 12 }}>
+          <input
+            id="session-token"
+            className="h-input"
+            type="text"
+            autoComplete="off"
+            placeholder="Paste a session token"
+            value={token}
+            onChange={(e) => { setToken(e.target.value); setTokenError(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") signInWithToken(); }}
+            aria-invalid={tokenError ? true : undefined}
+            style={{ width: "100%" }}
+          />
+          {tokenError && <p role="alert" className="note note--warn" style={{ margin: 0 }}>{tokenError}</p>}
+          <button id="token-signin" className="h-btn h-btn--primary" type="button" onClick={signInWithToken} style={{ width: "100%", justifyContent: "center" }}>Sign in with token</button>
+        </div>
+      </details>
     </main>
   );
 }
