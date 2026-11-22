@@ -22,7 +22,6 @@ export function Console() {
   }, [db, today]);
 
   if (!h || !data) return null;
-  const isOwner = me!.user.role === "owner";
   const firstRun = data.recipes === 0 && data.planned === 0;
 
   return (
@@ -32,7 +31,6 @@ export function Console() {
           <div className="muted" style={{ fontSize: 13 }}>{greeting()}, {me!.user.name.split(" ")[0]}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <h1 style={{ margin: 0, fontSize: 28 }}>{h.name}</h1>
-            {isOwner && firstRun && <span className="h-badge badge--accent">Owner</span>}
           </div>
         </div>
         <Link to="/settings" className="h-icon-btn" aria-label={me!.unreadReplies ? "Settings, new reply" : "Settings"} style={{ position: "relative" }}>

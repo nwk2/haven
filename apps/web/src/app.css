@@ -141,3 +141,8 @@ img.thumb { object-fit: cover; }
   .plan-panel { display: flex; flex-direction: column; gap: 10px; padding: 16px; position: sticky; top: 16px; }
   .page.mod-main { max-width: 1240px; }
 }
+/* A module and its own settings, as one card (Settings › Modules). */
+.module-card { padding: 0; overflow: hidden; }
+.module-card > .h-row { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.module-card > .h-row + .h-row { border-top: 1px solid var(--haven-border); }
+.module-card__setting { padding-left: 24px; }

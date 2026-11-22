@@ -55,11 +55,13 @@ export function Settings() {
 
       <section className="h-stack" aria-labelledby="hh">
         <h2 id="hh" className="h-section-title">Household · {h.name}</h2>
-        {members.map((m) => (
+        {/* You're shown under Account; here only the other members. Their role matters only when it isn't you who owns. */}
+        {others.map((m) => (
           <div key={m.id} className="h-row">
             <span className="avatar" aria-hidden="true">{m.name[0]}</span>
-            <span className="h-row__main"><span className="h-row__title">{m.name}{m.id === me.user.id ? " (you)" : ""}</span><span className="h-row__sub">{m.role === "owner" ? "Owner" : "Member"}</span></span>
-            {owner && m.id !== me.user.id && <Button variant="secondary" onClick={() => open("remove", { member: m })}>Remove</Button>}
+            <span className="h-row__main"><span className="h-row__title">{m.name}</span>
+              <span className="h-row__sub">{!owner && m.role === "owner" ? "Owner · ask them to change household settings" : `Joined ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(m.joined_at)}`}</span></span>
+            {owner && <Button variant="secondary" onClick={() => open("remove", { member: m })}>Remove</Button>}
           </div>
         ))}
         <InviteRow owner={owner} />
@@ -71,9 +73,15 @@ export function Settings() {
 
       <section className="h-stack" aria-labelledby="mod">
         <h2 id="mod" className="h-section-title">Modules</h2>
-        <div className="h-row"><span className="h-row__main"><span className="h-row__title">Meals &amp; Groceries</span><span className="h-row__sub">On for everyone in {h.name}</span></span>
-          {owner && <Switch label="Meals and Groceries module" checked={h.enabled_modules.includes("meals")} onChange={() => open("modules")} />}</div>
-        {row("Usual servings", h.default_servings ? `New meals start at ${h.default_servings}` : "New meals use each recipe’s servings", () => open("servings", { num: h.default_servings ?? 2 }), { ownerOnly: true })}
+        <div className="module-card h-card">
+          <div className="h-row"><span className="h-row__main"><span className="h-row__title">Meals &amp; Groceries</span><span className="h-row__sub">On for everyone in {h.name}</span></span>
+            {owner && <Switch label="Meals and Groceries module" checked={h.enabled_modules.includes("meals")} onChange={() => open("modules")} />}</div>
+          {owner && h.enabled_modules.includes("meals") && (
+            <button type="button" className="h-row settings-row module-card__setting" onClick={() => open("servings", { num: h.default_servings ?? 2 })}>
+              <span className="h-row__main"><span className="h-row__title">Usual servings</span><span className="h-row__sub">{h.default_servings ? `New meals start at ${h.default_servings}` : "New meals use each recipe’s servings"}</span></span>{Icon.chevron}
+            </button>
+          )}
+        </div>
       </section>
 
       <section className="h-stack" aria-labelledby="app">
