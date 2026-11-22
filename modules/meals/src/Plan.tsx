@@ -49,7 +49,7 @@ export function Plan() {
       <div className="week-switch h-card">
         <button className="h-icon-btn" aria-label="Previous 7 days" onClick={() => setOffset(offset - 1)}>‹</button>
         <div className="center-text"><strong>{fmt(days[0], { month: "short", day: "numeric" })} – {fmt(days[6], { month: "short", day: "numeric" })}</strong>
-          <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "Tap a cart to set a shopping day" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
+          <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "Tap a cart to plan a grocery run" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
         <button className="h-icon-btn" aria-label="Next 7 days" onClick={() => setOffset(offset + 1)}>›</button>
       </div>}>
       {empty && (
@@ -65,9 +65,9 @@ export function Plan() {
         const isNone = g.key === "none";
         return (
           <section key={g.key + g.days[0]} style={{ "--n": g.days.length } as React.CSSProperties} className={`trip-group ${isNone ? (upcomingMeals.length ? "trip-none" : "trip-plain") : `trip-${g.color + 1}`}`}>
-            {!isNone && g.trip && <div className="trip-group__head"><strong>Shop {fmt(g.trip.date)}</strong><span>{plural(g.days.flatMap(mealsOn).length, "meal")}</span></div>}
+            {!isNone && g.trip && <div className="trip-group__head"><strong>Grocery run · {fmt(g.trip.date)}</strong><span>{plural(g.days.flatMap(mealsOn).length, "meal")}</span></div>}
             {isNone && upcomingMeals.length > 0 && (
-              <div className="trip-group__head"><strong>To be shopped · {upcomingMeals.length} {upcomingMeals.length === 1 ? "meal" : "meals"}</strong>
+              <div className="trip-group__head"><strong>No grocery run yet · {upcomingMeals.length} {upcomingMeals.length === 1 ? "meal" : "meals"}</strong>
                 <Button variant="secondary" onClick={() => toggleShop(g.days.find((x) => x >= today && mealsOn(x).length) ?? today)}>{g.days.includes(today) ? "Shop today" : `Shop on ${fmt(g.days.find((x) => mealsOn(x).length)!)}`}</Button></div>
             )}
             {g.days.map((day) => {
@@ -83,7 +83,7 @@ export function Plan() {
                     ))}
                     {!past && <button className="add-meal" onClick={() => setAdding(day)}>+ Add meal</button>}
                   </div>
-                  {(!past || shop) && <button className={`cart${shop ? " cart--on" : ""}`} aria-pressed={shop} aria-label={`${shop ? "Remove shopping day" : "Make shopping day"} ${fmt(day, { weekday: "long", day: "numeric" })}`} onClick={() => toggleShop(day)}>{Icon.cart}</button>}
+                  {(!past || shop) && <button className={`cart${shop ? " cart--on" : ""}`} aria-pressed={shop} aria-label={`${shop ? "Cancel grocery run on" : "Plan a grocery run on"} ${fmt(day, { weekday: "long", day: "numeric" })}`} onClick={() => toggleShop(day)}>{Icon.cart}</button>}
                 </div>
               );
             })}
@@ -94,8 +94,8 @@ export function Plan() {
       {adding && <AddMeal day={adding} data={d} onClose={() => setAdding(null)} />}
       {open && <MealSheet meal={open} data={d} onClose={() => setOpen(null)} />}
       {confirm && (
-        <Dialog title={`Remove ${fmt(confirm.date)} as a shopping day?`} body="Some items on its list are already bought and stay recorded. Unbought items move to the previous trip." onClose={() => setConfirm(null)}>
-          <Button variant="danger" onClick={async () => { await m.put("meals_trips", confirm.id, { deleted: 1 }); setConfirm(null); }}>Remove shopping day</Button>
+        <Dialog title={`Cancel the ${fmt(confirm.date)} grocery run?`} body="Some items on its list are already bought and stay recorded. Unbought items move to the previous grocery run." onClose={() => setConfirm(null)}>
+          <Button variant="danger" onClick={async () => { await m.put("meals_trips", confirm.id, { deleted: 1 }); setConfirm(null); }}>Cancel grocery run</Button>
           <Button variant="text" onClick={() => setConfirm(null)}>Cancel</Button>
         </Dialog>
       )}
@@ -179,14 +179,14 @@ export const Skeleton = () => <div className="h-stack" aria-hidden="true">{[0, 1
 function NextTripPanel({ data }: { data: MealsData }) {
   const { today, household } = useCtx();
   const next = data.trips.find((t) => t.status !== "finished" && t.date >= today);
-  if (!next) return <aside className="plan-panel h-card"><strong>No upcoming trip</strong><span className="muted">Tap a day’s cart to make it a shopping day.</span></aside>;
+  if (!next) return <aside className="plan-panel h-card"><strong>No upcoming grocery run</strong><span className="muted">Tap a day’s cart to plan one.</span></aside>;
   const l = listFor(data, next, household.measurement);
   const bySection = new Map<string, number>();
   for (const r of l.rows) if (r.state.kind !== "inCart" && r.state.kind !== "haveIt") { const s = ingredientOf(data, r.line.ingredientId)?.section ?? "other"; bySection.set(s, (bySection.get(s) ?? 0) + 1); }
   const total = l.rows.length + l.extras.length; const got = l.rows.filter((r) => r.state.kind === "inCart").length + l.extras.filter((e) => e.checked).length;
   return (
-    <aside className="plan-panel h-card" aria-label="Next trip">
-      <span className="h-section-title">Next trip</span>
+    <aside className="plan-panel h-card" aria-label="Next grocery run">
+      <span className="h-section-title">Next grocery run</span>
       <strong style={{ fontSize: 18 }}>{fmt(next.date)} · {plural(total, "item")}</strong>
       <span className="progress" aria-hidden="true"><span style={{ width: total ? `${(got / total) * 100}%` : 0 }} /></span>
       {[...bySection].map(([k, n]) => <div key={k} className="spread" style={{ fontSize: 14 }}><span>{sectionName(k)}</span><span className="muted">{n} left</span></div>)}

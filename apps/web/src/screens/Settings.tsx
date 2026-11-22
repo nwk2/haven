@@ -103,7 +103,7 @@ export function Settings() {
     {dialog === "rename" && <Dialog title="Rename household" body="Everyone sees the new name." onClose={close}>
       <Field label="Household name" value={text} onChange={(e) => setText(e.target.value)} maxLength={60} error={error} />
       <Button loading={busy} onClick={() => patch({ name: text.trim() })}>Save</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}
-    {dialog === "timezone" && <Dialog title="Household time zone" body="Decides which day is “today” for everyone, so trips and overdue states match across devices." onClose={close}>
+    {dialog === "timezone" && <Dialog title="Household time zone" body="Decides which day is “today” for everyone, so grocery runs and overdue states match across devices." onClose={close}>
       <Field label="Time zone" list="tz-list" value={text} onChange={(e) => setText(e.target.value)} error={error} />
       <datalist id="tz-list">{(Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone").map((z) => <option key={z} value={z} />)}</datalist>
       <Button loading={busy} onClick={() => patch({ timezone: text })}>Save</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}

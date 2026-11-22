@@ -5,7 +5,7 @@ export function ModuleHeader({ title, children }: { title: string; children?: Re
   return (
     <header>
       <div className="h-modhead">
-        <Link to="/" className="h-icon-btn" aria-label="Back to household console" style={{ marginLeft: -10 }}>{Icon.grid}</Link>
+        <Link to="/" className="h-icon-btn" aria-label="Back to household" style={{ marginLeft: -10 }}>{Icon.back}</Link>
         <div><div className="h-modhead__eyebrow">Meals &amp; Groceries</div><h1>{title}</h1></div>
       </div>
       {children}

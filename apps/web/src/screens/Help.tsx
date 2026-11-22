@@ -8,8 +8,8 @@ import { useSession } from "../session";
 interface Item { id: string; kind: string; first: string; label: string; user_unread: number; updated_at: number }
 const KINDS = [["broken", "Something’s broken", "Tell us what you did and what you expected"], ["idea", "Idea", "What would make Haven better for your household?"], ["question", "Question", "Ask anything"]] as const;
 const FAQ = [
-  ["How do shopping days work?", "Tap the cart on a day in Plan. That trip covers every meal from that day until the day before your next shopping day, and its list builds itself."],
-  ["Why isn’t a meal on any list?", "There’s no shopping day on or before it. Add one on Plan, or tap “Shop today”."],
+  ["How do grocery runs work?", "Tap the cart on a day in Plan to plan a grocery run. It covers every meal from that day until the day before your next run, and its list builds itself."],
+  ["Why does a meal say “No grocery run yet”?", "There’s no grocery run on or before that day, so its ingredients aren’t on any list. Tap a day’s cart on Plan, or “Shop today”."],
   ["Does Haven work without signal?", "Yes. Lists, recipes and the plan are kept on your phone; changes sync when you’re back online."],
   ["How do I install Haven?", "Settings › Install Haven on this device shows the steps for your phone or computer."],
 ];

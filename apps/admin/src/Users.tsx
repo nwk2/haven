@@ -47,7 +47,7 @@ function Account({ id }: { id: string }) {
         <dt>Last active</dt><dd>{u.last_seen ? day(Number(u.last_seen)) : "—"}</dd>
         <dt>Signed-in devices</dt><dd>{String(u.devices)}</dd>
         {u.counts && <><dt>Household</dt><dd>{String(u.household)} · {u.counts.members} members · {String(u.timezone)} · {String(u.measurement)}</dd>
-          <dt>Household size</dt><dd>{u.counts.recipes} recipes · {u.counts.trips} trips (counts only)</dd></>}
+          <dt>Household size</dt><dd>{u.counts.recipes} recipes · {u.counts.trips} grocery runs (counts only)</dd></>}
         <dt>Feedback</dt><dd>{String(u.feedback)} conversations</dd>
       </dl>
       {msg && <p role="status" className="note">{msg}</p>}

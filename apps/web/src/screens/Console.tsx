@@ -47,7 +47,7 @@ export function Console() {
         <section className="h-card h-stack" style={{ padding: 16 }} aria-labelledby="gs">
           <h2 id="gs" style={{ margin: 0, fontSize: 18 }}>Get started</h2>
           <Link className="h-row" to="/m/meals/recipes/new"><span className="h-row__main"><span className="h-row__title">Add your first recipe</span><span className="h-row__sub">Start here · about 2 minutes</span></span>{Icon.chevron}</Link>
-          <Link className="h-row" to="/m/meals/plan"><span className="h-row__main"><span className="h-row__title">Plan a meal and pick a shopping day</span><span className="h-row__sub">Your first grocery list builds itself</span></span>{Icon.chevron}</Link>
+          <Link className="h-row" to="/m/meals/plan"><span className="h-row__main"><span className="h-row__title">Plan a meal and a grocery run</span><span className="h-row__sub">Your first grocery list builds itself</span></span>{Icon.chevron}</Link>
           <Link className="h-row" to="/settings"><span className="h-row__main"><span className="h-row__title">Invite someone</span><span className="h-row__sub">Share the link; they sign in with Google</span></span>{Icon.chevron}</Link>
         </section>
       )}
@@ -58,7 +58,7 @@ export function Console() {
           <span className="tile__icon" aria-hidden="true">{Icon.cart}</span>
           <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>Meals &amp; Groceries</span>
             <span className="h-row__sub">{data.tonightTitle ? `Tonight: ${data.tonightTitle}` : data.planned ? `${data.planned} meals planned` : "No meals planned yet"}
-              {data.nextTrip ? ` · Next trip ${fmtDay(String(data.nextTrip.date))}` : ""}</span></span>
+              {data.nextTrip ? ` · Next grocery run ${fmtDay(String(data.nextTrip.date))}` : ""}</span></span>
           {Icon.chevron}
         </Link>}
         {!me!.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}

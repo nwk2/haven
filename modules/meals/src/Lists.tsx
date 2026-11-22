@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Skeleton } from "./Plan";
 import { useCtx } from "./ctx";
-import { amount, fmt, ingredientOf, listFor, mealOf, newId, toRecipe, tripOf, useMealsData, useMutate, type MealsData, type TripRow } from "./data";
+import { amount, fmt, plural, ingredientOf, listFor, mealOf, newId, toRecipe, tripOf, useMealsData, useMutate, type MealsData, type TripRow } from "./data";
 import { ModuleShell } from "./shell";
 
 export interface FinalLine { key: string; name: string; qty?: number; unit?: string; base: number; section: string }
@@ -38,15 +38,15 @@ export function Lists() {
 
   return (
     <ModuleShell title="Lists" tab="lists">
-      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming trips</h2><p className="muted">Mark a shopping day on Plan and its list builds itself from the meals it covers.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
+      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming grocery runs</h2><p className="muted">Tap a day’s cart on Plan to plan a grocery run; its list builds itself from the meals it covers.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
       {added.map(({ trip, extra, lines }) => {
         const snapshot = lines.map((l) => ({ key: l.key, name: ingredientOf(d, l.ingredientId)?.name ?? "?", qty: l.shown.qty, unit: l.shown.unit, base: l.base, section: ingredientOf(d, l.ingredientId)?.section ?? "other" }));
         return (
           <section key={trip.id} className="h-card h-stack" style={{ padding: 16, borderColor: "var(--haven-accent-2)" }}>
-            <strong>{extra.length} {extra.length === 1 ? "item" : "items"} added since the {fmt(trip.date)} trip</strong>
+            <strong>{extra.length} {extra.length === 1 ? "item" : "items"} added since the {fmt(trip.date)} grocery run</strong>
             <span>{extra.map((x) => `${x.name}${amount(x.shown.qty, x.shown.unit) ? ` · ${amount(x.shown.qty, x.shown.unit)}` : ""}`).join(" · ")}</span>
-            {next && <Button onClick={() => carry(trip, next, extra, snapshot)}>Add to {fmt(next.date)} trip</Button>}
-            <Button variant="secondary" onClick={async () => { const id = newId(); await m.put("meals_trips", id, { date: today, kind: "topup", status: "upcoming" }); await carry(trip, { id, date: today, kind: "topup", status: "upcoming" } as TripRow, extra, snapshot); }}>Start a top-up trip today</Button>
+            {next && <Button onClick={() => carry(trip, next, extra, snapshot)}>Add to the {fmt(next.date)} run</Button>}
+            <Button variant="secondary" onClick={async () => { const id = newId(); await m.put("meals_trips", id, { date: today, kind: "topup", status: "upcoming" }); await carry(trip, { id, date: today, kind: "topup", status: "upcoming" } as TripRow, extra, snapshot); }}>Start a top-up run today</Button>
           </section>
         );
       })}
@@ -61,7 +61,7 @@ export function Lists() {
             <Link to={`/m/meals/lists/${t.id}`} className="trip-card__link">
               <span className="spread"><strong style={{ fontSize: 20 }}>{fmt(t.date, { weekday: "short", month: "short", day: "numeric" })}</strong>
                 {overdue ? <span className="h-badge badge--accent2">Overdue</span> : t.kind === "topup" ? <span className="h-badge badge--ink">Top-up</span> : null}</span>
-              <span className="trip-card__sub">{t.kind === "topup" ? `${total} items` : w ? `Covers ${fmt(w.from, { weekday: "short" })}–${fmt(w.to, { weekday: "short" })} · ${l.meals.length} meals` : ""}</span>
+              <span className="trip-card__sub">{t.kind === "topup" ? `${total} items` : w ? `Covers ${fmt(w.from, { weekday: "short" })}–${fmt(w.to, { weekday: "short" })} · ${plural(l.meals.length, "meal")}` : ""}</span>
               <span className="progress" aria-hidden="true"><span style={{ width: total ? `${(inCart / total) * 100}%` : 0 }} /></span>
               <span className="trip-card__sub"><strong>{inCart} of {total} in cart</strong></span>
             </Link>
@@ -98,10 +98,10 @@ function MoveTrip({ trip, data, onClose }: { trip: TripRow; data: MealsData; onC
     onClose();
   }
   return (
-    <Dialog title={`Move this trip to today, ${fmt(today)}?`} body={onlyPast.length ? `${past.map((p) => data.recipes.find((r) => r.id === p.recipeId)?.title).filter(Boolean).join(", ")} ${past.length === 1 ? "is" : "are"} in the past. These items were only for ${past.length === 1 ? "that meal" : "those meals"}:` : "Meals before today will no longer be on this list."} onClose={onClose}>
+    <Dialog title={`Move this grocery run to today, ${fmt(today)}?`} body={onlyPast.length ? `${past.map((p) => data.recipes.find((r) => r.id === p.recipeId)?.title).filter(Boolean).join(", ")} ${past.length === 1 ? "is" : "are"} in the past. These items were only for ${past.length === 1 ? "that meal" : "those meals"}:` : "Meals before today will no longer be on this list."} onClose={onClose}>
       {onlyPast.length > 0 && <ul style={{ margin: 0 }}>{onlyPast.map((l) => <li key={l.key}>{ingredientOf(data, l.ingredientId)?.name} · {amount(l.shown.qty, l.shown.unit)}</li>)}</ul>}
       {onlyPast.length > 0 && <label className="chips"><input type="checkbox" checked={drop} onChange={(e) => setDrop(e.target.checked)} /> Drop them — I’ll cook those meals another day or skip them</label>}
-      <Button onClick={go}>Move trip</Button><Button variant="text" onClick={onClose}>Cancel</Button>
+      <Button onClick={go}>Move run</Button><Button variant="text" onClick={onClose}>Cancel</Button>
     </Dialog>
   );
 }

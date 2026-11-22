@@ -41,7 +41,7 @@ export function Shopping() {
   }, [list]);
 
   if (!d) return null;
-  if (!trip || !list) return <main className="page"><p>This trip no longer exists. <Link to="/m/meals/lists">Back to lists</Link></p></main>;
+  if (!trip || !list) return <main className="page"><p>This grocery run no longer exists. <Link to="/m/meals/lists">Back to lists</Link></p></main>;
   if (trip.status === "finished") return <FinishedTrip trip={trip} />;
 
   const sectionOf = (r: ListRow) => ingredientOf(d, r.line.ingredientId)?.section ?? "other";
@@ -58,7 +58,7 @@ export function Shopping() {
     <header className={`shop-head trip-${color}`}>
       <div className="spread"><Link to="/m/meals/lists" className="h-icon-btn" aria-label="Back to lists">{Icon.back}</Link>
         <span className="muted" role="status" style={{ fontSize: 12 }}>{status.state === "offline" ? `Offline · ${status.pending} changes waiting` : status.state === "synced" ? "Synced" : "Syncing…"}</span>
-        <Button variant="secondary" onClick={() => setFinishing(true)}>Finish trip</Button></div>
+        <Button variant="secondary" onClick={() => setFinishing(true)}>Finish run</Button></div>
       <div className="spread" style={{ padding: "0 8px" }}><h1 style={{ margin: 0, fontSize: 24 }}>{fmt(trip.date, { weekday: "short", month: "short", day: "numeric" })}</h1></div>
       <div style={{ padding: "0 8px" }}><span className="progress" aria-hidden="true"><span style={{ width: total ? `${(got / total) * 100}%` : 0 }} /></span><strong style={{ fontSize: 13 }}>{got} of {total} in cart</strong></div>
     </header>
@@ -126,7 +126,7 @@ function ExtraLine({ item, done, onToggle, onMore }: { item: ItemRow; done?: boo
     <div className="item">
       <button className={`h-row item__main${done ? " item--done" : ""}`} aria-pressed={!!done} onClick={onToggle}>
         <span className={`check${done ? " check--on" : ""}`} aria-hidden="true">{done && Icon.check}</span>
-        <span className="h-row__main"><span className="h-row__title">{item.label}{item.qty ? <span className="muted"> · {amount(item.qty, item.unit)}</span> : null}</span>{!done && <span className="h-row__sub">{item.carried_from ? "Carried from an earlier trip" : "Extra"}</span>}</span>
+        <span className="h-row__main"><span className="h-row__title">{item.label}{item.qty ? <span className="muted"> · {amount(item.qty, item.unit)}</span> : null}</span>{!done && <span className="h-row__sub">{item.carried_from ? "Carried from an earlier run" : "Extra"}</span>}</span>
         {item.carried_from && !done && <span className="h-badge badge--neutral">Carried</span>}
         {!!item.unavailable && !done && <span className="h-badge badge--danger">Couldn’t get</span>}
       </button>
@@ -150,7 +150,7 @@ function ItemSheet({ d, trip, row, onClose }: { d: MealsData; trip: TripRow; row
         <span className="muted" style={{ fontSize: 12 }}>{sectionName(ing?.section ?? "other")}</span>
         <strong style={{ fontSize: 13 }}>Needed for</strong>
         {per.map((p) => <Link key={p.id} className="h-row" to={`/m/meals/recipes/${d.meals.find((x) => x.id === p.id)?.recipe_id}`}><span className="h-row__main"><span className="h-row__title">{p.title}</span><span className="h-row__sub">{p.when}</span></span><strong>{p.qty}</strong></Link>)}
-        <Button variant="secondary" block onClick={async () => { await m.item(trip.id, row.line.key, { have_it: 1, checked: 0 }); onClose(); }}>Have it — skip for this trip</Button>
+        <Button variant="secondary" block onClick={async () => { await m.item(trip.id, row.line.key, { have_it: 1, checked: 0 }); onClose(); }}>Have it — skip for this run</Button>
         <Button variant="secondary" block onClick={async () => { await m.item(trip.id, row.line.key, { unavailable: row.state.kind === "unavailable" ? 0 : 1, checked: 0 }); onClose(); }}>{row.state.kind === "unavailable" ? "Found it after all" : "Couldn’t get it"}</Button>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>Amounts come from recipes. To change them, edit the recipe or the meal’s servings.</p>
       </div>
@@ -191,21 +191,21 @@ function FinishTrip({ d, trip, todo, extras, onClose, onDone }: { d: MealsData; 
     // Meals in this trip are now bought (PRD › Meals that didn't happen).
     for (const meal of l.meals) await m.put("meals_planned", meal.id, { bought_on_trip_id: trip.id });
     await m.put("meals_trips", trip.id, { status: "finished", finished_at: Date.now(), reopen_until: Date.now() + 86_400_000, final_lines: [...snapshot, ...todo.filter(() => choice === "drop").map((r) => ({ key: r.line.key, name: ingredientOf(d, r.line.ingredientId)?.name ?? "?", base: r.line.base, section: "other" }))] });
-    await m.activity(`${user.name.split(" ")[0]} finished the ${fmt(trip.date)} trip`);
+    await m.activity(`${user.name.split(" ")[0]} finished the ${fmt(trip.date)} grocery run`);
     onDone();
   }
   return (
-    <Sheet title={`Finish the ${fmt(trip.date)} trip?`} onClose={onClose}>
+    <Sheet title={`Finish the ${fmt(trip.date)} grocery run?`} onClose={onClose}>
       <div className="h-stack">
         <span className="muted">{left ? `${left} ${left === 1 ? "item is" : "items are"} still unchecked.` : "Everything is in the cart."}</span>
         {left > 0 && <ul className="plain h-card" style={{ padding: "4px 12px" }}>{todo.map((r) => <li key={r.line.key} className="ing-line">{ingredientOf(d, r.line.ingredientId)?.name} <span className="muted">{amount(r.line.shown.qty, r.line.shown.unit)}</span></li>)}{extras.map((e) => <li key={e.id} className="ing-line">{e.label} <span className="muted">Extra</span></li>)}</ul>}
         {left > 0 && <div role="radiogroup" aria-label="Unchecked items" className="h-stack">
-          <button role="radio" aria-checked={choice === "move"} disabled={!next} className="h-row pick" onClick={() => setChoice("move")}><span className="h-row__main"><span className="h-row__title">{next ? `Move ${left} to the ${fmt(next.date)} trip` : "No later trip yet"}</span><span className="h-row__sub">{next ? "They appear on that list as carried items" : "Add a shopping day on Plan to carry items over"}</span></span></button>
+          <button role="radio" aria-checked={choice === "move"} disabled={!next} className="h-row pick" onClick={() => setChoice("move")}><span className="h-row__main"><span className="h-row__title">{next ? `Move ${left} to the ${fmt(next.date)} run` : "No later run yet"}</span><span className="h-row__sub">{next ? "They appear on that list as carried items" : "Plan another grocery run to carry items over"}</span></span></button>
           <button role="radio" aria-checked={choice === "drop"} className="h-row pick" onClick={() => setChoice("drop")}><span className="h-row__main"><span className="h-row__title">Don’t need them</span><span className="h-row__sub">Clear them; the meals stay planned</span></span></button>
         </div>}
-        <Button block onClick={finish}>Finish trip</Button>
+        <Button block onClick={finish}>Finish run</Button>
         <Button variant="text" onClick={onClose}>Keep shopping</Button>
-        {trip.date > today && <span className="muted" style={{ fontSize: 12 }}>This trip is dated {fmt(trip.date)}; finishing early is fine.</span>}
+        {trip.date > today && <span className="muted" style={{ fontSize: 12 }}>This run is dated {fmt(trip.date)}; finishing early is fine.</span>}
       </div>
     </Sheet>
   );
