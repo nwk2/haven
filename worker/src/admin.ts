@@ -9,7 +9,7 @@ import type { Env } from "./env";
  * time with ADMIN_MODE = "1". Google sign-in + passkey; never reads household content.
  */
 const COOKIE = "__Host-haven_admin";
-const HOURS_12 = 12 * 3_600_000;
+const DAYS_90 = 90 * 86_400_000;
 const STEP_UP = 15 * 60_000;
 const LIMITS = { daily: { worker_requests: 100_000, do_requests: 100_000, d1_rows_written: 100_000, d1_rows_read: 5_000_000 } };
 
@@ -18,9 +18,15 @@ type A = { Bindings: Env; Variables: { s: AdminSession } };
 export const admin = new Hono<A>();
 
 const tokenOf = (cookie: string | undefined) => cookie?.match(new RegExp(`${COOKIE}=([^;]+)`))?.[1];
+/** Returns the admin session, renewing its 90-day window (mirrors the main app's readSession). */
 async function session(env: Env, cookie: string | undefined): Promise<AdminSession | null> {
   const t = tokenOf(cookie); if (!t) return null;
-  return env.DB.prepare("SELECT token_hash, passkey_at, challenge, expires_at FROM admin_sessions WHERE token_hash = ? AND expires_at > ?").bind(await sha256(t), Date.now()).first<AdminSession>();
+  const hash = await sha256(t); const now = Date.now();
+  const row = await env.DB.prepare("SELECT token_hash, passkey_at, challenge, expires_at FROM admin_sessions WHERE token_hash = ? AND expires_at > ?").bind(hash, now).first<AdminSession>();
+  if (!row) return null;
+  await env.DB.prepare("UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?").bind(now + DAYS_90, hash).run();
+  row.expires_at = now + DAYS_90;
+  return row;
 }
 async function audit(env: Env, action: string, targetType: string, targetId: string | null, detail?: unknown) {
   await env.DB.prepare("INSERT INTO audit_log (id, at, action, target_type, target_id, detail) VALUES (?, ?, ?, ?, ?, ?)").bind(newId(), Date.now(), action, targetType, targetId, detail ? JSON.stringify(detail) : null).run();
@@ -51,8 +57,8 @@ admin.get("/auth/google/callback", async (c) => {
     return c.redirect(`/denied?email=${encodeURIComponent(p.email)}`);
   }
   const token = randomToken(); const now = Date.now();
-  await c.env.DB.prepare("INSERT INTO admin_sessions (token_hash, created_at, expires_at, passkey_at) VALUES (?, ?, ?, 0)").bind(await sha256(token), now, now + HOURS_12).run();
-  c.header("Set-Cookie", `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${HOURS_12 / 1000}`, { append: true });
+  await c.env.DB.prepare("INSERT INTO admin_sessions (token_hash, created_at, expires_at, passkey_at) VALUES (?, ?, ?, 0)").bind(await sha256(token), now, now + DAYS_90).run();
+  c.header("Set-Cookie", `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${DAYS_90 / 1000}`, { append: true });
   return c.redirect("/sign-in?step=passkey");
 });
 

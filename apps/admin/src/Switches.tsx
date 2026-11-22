@@ -1,5 +1,5 @@
 import { startRegistration } from "@simplewebauthn/browser";
-import { Button, Field, Segmented, Switch } from "@haven/ui";
+import { Button, Field, Icon, Segmented, Switch } from "@haven/ui";
 import { useEffect, useState } from "react";
 import { api, when } from "./api";
 import { InstallCard } from "./install";
@@ -27,10 +27,10 @@ export function Switches() {
           <Switch label={FLAGS[f.key]?.[0] ?? f.key} checked={f.value} onChange={async (v) => { await api(`/flags/${f.key}`, { method: "PUT", body: JSON.stringify({ value: v }) }); load(); }} /></div>))}</section>
       <section className="h-card h-stack" style={{ padding: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>Announcement banner</h2>
-        {ann.map((a) => <div key={a.id} className="spread note note--info"><span>{a.text}<br /><span className="muted" style={{ fontSize: 12 }}>{when(a.starts_at)} – {when(a.ends_at)}</span></span><Button variant="text" onClick={async () => { await api(`/announcements/${a.id}`, { method: "DELETE" }); load(); }}>Remove</Button></div>)}
-        <Field label="Message (shown at the top of the console for everyone)" value={text} onChange={(e) => setText(e.target.value)} maxLength={280} />
+        {ann.map((a) => <div key={a.id} className="spread note note--info"><span aria-hidden="true" style={{ flexShrink: 0, lineHeight: 0 }}>{Icon.megaphone}</span><span style={{ flex: 1 }}>{a.text}<br /><span className="muted" style={{ fontSize: 12 }}>{when(a.starts_at)} – {when(a.ends_at)}</span></span><Button variant="text" onClick={async () => { await api(`/announcements/${a.id}`, { method: "DELETE" }); load(); }}>Remove</Button></div>)}
+        <Field label="Message (shown at the top of the console for everyone)" textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} maxLength={280} />
         <div className="two-col"><Field label="Show from" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} /><Field label="Until" type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} /></div>
-        <Button disabled={!text.trim() || !from || !until} onClick={async () => { await api("/announcements", { method: "POST", body: JSON.stringify({ text, starts_at: new Date(from).getTime(), ends_at: new Date(until).getTime() }) }); setText(""); load(); }}>Schedule</Button>
+        <Button disabled={!text.trim() || !from || !until} onClick={async () => { const starts_at = new Date(from).getTime(); const ends_at = new Date(until).getTime(); const r = await api<{ id: string }>("/announcements", { method: "POST", body: JSON.stringify({ text, starts_at, ends_at }) }); setAnn((prev) => [...prev, { id: r.id, text: text.trim().slice(0, 280), starts_at, ends_at }].sort((a, b) => a.starts_at - b.starts_at)); setText(""); load(); }}>Schedule</Button>
       </section>
       <section className="h-card" style={{ overflowX: "auto" }}>
         <table className="audit"><caption>Audit log</caption><thead><tr><th>When</th><th>Action</th><th>Target</th></tr></thead>

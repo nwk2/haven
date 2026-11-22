@@ -24,7 +24,7 @@ h1 { margin: 0; font-family: var(--haven-font-heading); font-weight: var(--haven
 .bubble strong { font-size: 11px; } .bubble--me { align-self: flex-end; background: var(--haven-accent); color: var(--haven-on-accent); }
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 14px; } .facts dt { color: var(--haven-muted); } .facts dd { margin: 0; }
 .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-.act { width: 100%; font: inherit; text-align: left; cursor: pointer; } .act.danger .h-row__title { color: var(--haven-danger); }
+.act { box-sizing: border-box; width: 100%; font: inherit; text-align: left; cursor: pointer; } .act.danger .h-row__title { color: var(--haven-danger); }
 .bar { position: relative; height: 10px; border-radius: 5px; background: var(--haven-disabled-bg); } .bar span { display: block; height: 10px; border-radius: 5px; background: var(--haven-accent); } .bar span.hot { background: var(--haven-danger); }
 .bar i { position: absolute; left: 70%; top: -3px; width: 2px; height: 16px; background: var(--haven-ink); opacity: 0.6; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; } .tile-stat { padding: 14px; display: flex; flex-direction: column; gap: 4px; } .tile-stat strong { font-size: 26px; } .tile-stat span { font-size: 13px; color: var(--haven-muted); }
@@ -82,6 +82,8 @@ a { color: var(--haven-accent); }
 .h-field, .two-col > * { min-width: 0; }
 .h-input { min-width: 0; max-width: 100%; }
 input[type="datetime-local"].h-input { -webkit-appearance: none; appearance: none; display: block; width: 100%; }
+/* WebKit centres the date/time value (::-webkit-date-and-time-value has text-align: center in the UA sheet); left-align it to match the other fields. */
+input[type="datetime-local"].h-input::-webkit-date-and-time-value { text-align: left; }
 /* Sign out: available, not shouting */
 .quiet-danger { color: var(--haven-danger) !important; border-color: var(--haven-border) !important; }
 .setup code, code { white-space: nowrap; }

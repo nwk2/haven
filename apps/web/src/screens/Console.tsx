@@ -38,7 +38,7 @@ export function Console() {
         </Link>
       </header>
 
-      {me!.announcement && <p className="note note--info" role="status">{me!.announcement.text}</p>}
+      {me!.announcement && <p className="note note--info" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><span aria-hidden="true" style={{ flexShrink: 0, lineHeight: 0 }}>{Icon.megaphone}</span><span>{me!.announcement.text}</span></p>}
       {me!.unreadReplies > 0 && (
         <Link to="/help" className="note note--info" role="status"><strong>The Haven team replied</strong> to your message.</Link>
       )}
