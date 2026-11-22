@@ -8,6 +8,7 @@ type ServerMessage =
   | { type: "ack"; ids: string[]; rejected?: string[]; version: number }
   | { type: "too_old"; minProtocol: number }
   | { type: "resync" }
+  | { type: "error"; message?: string }
   | { type: "presence"; userId: string; name: string; recipeId: string | null; at: number };
 
 export interface Presence { userId: string; name: string; recipeId: string | null; at: number }
@@ -24,6 +25,9 @@ export class Sync {
   private retry = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pushing = false;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  /** A pull or push with no answer within this time counts as a failed sync (Technical spec › Sync protocol). */
+  static REPLY_TIMEOUT_MS = 15_000;
   private stopped = false;
   status: SyncStatus = { state: "connecting", pending: 0 };
   private listeners = new Set<(s: SyncStatus) => void>();
@@ -54,6 +58,7 @@ export class Sync {
     removeEventListener("online", this.reconnect);
     document.removeEventListener("visibilitychange", this.onVisible);
     if (this.timer) clearTimeout(this.timer);
+    this.disarm();
     this.ws?.close();
   }
 
@@ -67,8 +72,9 @@ export class Sync {
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = async () => { this.retry = 0; await this.setStatus("syncing"); this.send({ type: "pull", since: await this.cursor() }); };
-    ws.onmessage = (e) => void this.receive(JSON.parse(String(e.data)) as ServerMessage | { type: "reply" });
+    ws.onmessage = (e) => { this.disarm(); void this.receive(JSON.parse(String(e.data)) as ServerMessage | { type: "reply" }); };
     ws.onclose = (e) => {
+      this.disarm();
       if (e.code === 4001) { this.stopped = true; this.ws = null; this.onReplySignal?.(); return; }   // signed out by the server (suspended, removed)
       this.ws = null;
       this.pushing = false;
@@ -79,24 +85,46 @@ export class Sync {
     };
   }
 
-  private send(msg: object) { this.ws?.send(JSON.stringify({ protocol: this.protocol, ...msg })); }
+  private send(msg: { type: string; [k: string]: unknown }) {
+    this.ws?.send(JSON.stringify({ protocol: this.protocol, ...msg }));
+    if (msg.type === "pull" || msg.type === "push") this.arm();
+  }
+
+  /** No answer in time: say so and reconnect, instead of showing "Syncing…" forever. */
+  private arm() {
+    this.disarm();
+    this.watchdog = setTimeout(() => { console.warn("Haven sync: no reply from server"); void this.fail(); }, Sync.REPLY_TIMEOUT_MS);
+  }
+  private disarm() { if (this.watchdog) { clearTimeout(this.watchdog); this.watchdog = null; } }
+
+  private async fail() {
+    this.disarm();
+    this.pushing = false;
+    await this.setStatus("error");
+    this.ws?.close();          // onclose schedules a reconnect with backoff
+  }
+
+  /**
+   * Start over from the server's copy: clear local tables (not the outbox), re-apply unsent changes,
+   * pull everything. Used when the server says this device is too far behind, and whenever it
+   * rejects a change, so the screen never keeps showing something the server refused.
+   */
+  private async resyncFromScratch() {
+    await this.db.transaction("rw", this.db.tables, async () => {
+      for (const t of this.db.tables) if (t.name !== "outbox") await t.clear();
+    });
+    const pending = await this.db.outbox.toArray();
+    for (const p of pending) { const t = this.db.table_(p.table); await t.put({ ...((await t.get(p.rowId)) ?? { id: p.rowId }), ...p.fields, id: p.rowId }); }
+    this.send({ type: "pull", since: 0 });
+  }
 
   private async cursor(): Promise<number> { return ((await this.db.meta.get("cursor"))?.v as number) ?? 0; }
 
   private async receive(msg: ServerMessage | { type: "reply" }) {
     if (msg.type === "reply") { this.onReplySignal?.(); return; }
     if (msg.type === "presence") { this.presenceListeners.forEach((fn) => fn(msg)); return; }
-    if (msg.type === "resync") {
-      // Offline longer than tombstones are kept: start over from 0. Unsent changes stay in the outbox
-      // and are re-applied on top of the fresh rows, then pushed as usual.
-      await this.db.transaction("rw", this.db.tables, async () => {
-        for (const t of this.db.tables) if (t.name !== "outbox") await t.clear();
-      });
-      const pending = await this.db.outbox.toArray();
-      for (const p of pending) { const t = this.db.table_(p.table); await t.put({ ...((await t.get(p.rowId)) ?? { id: p.rowId }), ...p.fields, id: p.rowId }); }
-      this.send({ type: "pull", since: 0 });
-      return;
-    }
+    if (msg.type === "resync") { await this.resyncFromScratch(); return; }   // offline longer than tombstones are kept
+    if (msg.type === "error") { console.error("Haven sync: server error", msg.message ?? ""); await this.fail(); return; }
     if (msg.type === "too_old") { await this.setStatus("too_old"); this.ws?.close(); return; }
     if (msg.type === "changes") {
       await this.applyRemote(msg.rows);
@@ -107,10 +135,15 @@ export class Sync {
       return;
     }
     if (msg.type === "ack") {
-      if (msg.rejected?.length) console.warn("Haven sync: server rejected", msg.rejected.length, "change(s)");
       const acked = await this.db.outbox.where("id").anyOf(msg.ids).primaryKeys();
       await this.db.outbox.bulkDelete(acked);
       this.pushing = false;
+      if (msg.rejected?.length) {
+        // The server refused some changes: show its version, not ours (they would never sync).
+        console.warn("Haven sync: server rejected", msg.rejected.length, "change(s); reloading the server's copy");
+        await this.resyncFromScratch();
+        return;
+      }
       await this.flush();
     }
   }

@@ -38,7 +38,7 @@ export function Lists() {
 
   return (
     <ModuleShell title="Lists" tab="lists">
-      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming grocery runs</h2><p className="muted">Tap a day’s cart on Plan to plan a grocery run; its list builds itself from the meals it covers.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
+      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming grocery runs</h2><p className="muted">Tap ‘+ Add run’ in the Grocery runs strip on Plan to plan a grocery run; its list builds itself from the meals it covers.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
       {added.map(({ trip, extra, lines }) => {
         const snapshot = lines.map((l) => ({ key: l.key, name: ingredientOf(d, l.ingredientId)?.name ?? "?", qty: l.shown.qty, unit: l.shown.unit, base: l.base, section: ingredientOf(d, l.ingredientId)?.section ?? "other" }));
         return (

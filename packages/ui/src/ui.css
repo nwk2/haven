@@ -82,3 +82,4 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-skeleton { background: var(--haven-disabled-bg); border-radius: 6px; }
 
 @media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }
+.h-pill--warn .h-pill__dot { background: var(--haven-danger); }

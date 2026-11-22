@@ -56,13 +56,20 @@ export class Household implements DurableObject {
     }
     // HTTPS fallback (/api/sync): same messages, one round trip.
     const msg = (await req.json()) as ClientMessage;
-    return Response.json(await this.handle(msg, { userId, householdId }, null));
+    try { return Response.json(await this.handle(msg, { userId, householdId }, null)); }
+    catch (e) { console.error("sync: request failed", String(e)); return Response.json({ type: "error", message: "server_error" } satisfies ServerMessage, { status: 500 }); }
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     const who = ws.deserializeAttachment() as Attachment;
-    const reply = await this.handle(JSON.parse(String(data)), who, ws);
-    if (reply) ws.send(JSON.stringify(reply));
+    // Never fail silently: a thrown error becomes an explicit reply, so the phone shows "Can't sync" and retries.
+    try {
+      const reply = await this.handle(JSON.parse(String(data)), who, ws);
+      if (reply) ws.send(JSON.stringify(reply));
+    } catch (e) {
+      console.error("sync: message failed", String(e));
+      ws.send(JSON.stringify({ type: "error", message: "server_error" } satisfies ServerMessage));
+    }
   }
 
   async webSocketClose(ws: WebSocket) { ws.close(); }
@@ -178,4 +185,5 @@ export type ServerMessage =
   | { type: "ack"; ids: string[]; rejected?: string[]; version: number }
   | { type: "too_old"; minProtocol: number }
   | { type: "resync" }
+  | { type: "error"; message: string }
   | { type: "presence"; userId: string; name: string; recipeId: string | null; at: number };

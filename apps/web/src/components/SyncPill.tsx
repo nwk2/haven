@@ -13,6 +13,7 @@ export function SyncPill() {
       </div>
     );
   }
+  if (status.state === "error") return <div className="h-pill h-pill--warn" role="alert"><span className="h-pill__dot" />Can’t sync right now · retrying{status.pending ? ` · ${status.pending} changes saved on this phone` : ""}</div>;
   if (status.state === "offline") return <div className="h-pill" role="status"><span className="h-pill__dot" />Offline · changes are saved on this phone</div>;
   if (status.state === "syncing" && status.pending > 0) return <div className="h-pill" role="status"><span className="h-pill__dot" />Syncing {status.pending} changes…</div>;
   return null;
