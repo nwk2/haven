@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#111413"/>
+<g transform="translate(512 455) scale(0.82) translate(-512 -524)">
+  <path d="M232 500L512 268L792 500" fill="none" stroke="#C6F36B" stroke-width="88" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M392 780V600a120 120 0 0 1 240 0V780Z" fill="#C6F36B"/>
+  <circle cx="512" cy="640" r="46" fill="#111413"/>
+</g>
+<rect x="282" y="690" width="460" height="112" rx="56" fill="#C6F36B"/>
+<text x="512" y="772" text-anchor="middle" font-family="DejaVu Sans" font-weight="bold" font-size="76" letter-spacing="10" fill="#111413">ADMIN</text>
+</svg>

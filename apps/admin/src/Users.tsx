@@ -2,6 +2,7 @@ import { Button, Dialog, Field } from "@haven/ui";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, day } from "./api";
+import { Empty } from "./bits";
 
 interface U { id: string; name: string; email: string; household: string | null; role: string | null; last_seen: number | null; suspended_at: number | null }
 
@@ -16,6 +17,7 @@ export function Users() {
         <h1>Users</h1>
         <p className="muted" style={{ margin: 0 }}>Account details only; household recipes, plans and lists are never shown here.</p>
         <label className="h-field"><span className="h-sr">Search users by email</span><input className="h-input" type="search" placeholder="Search by email or name" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        {q.trim() && !users.length && <Empty title={`No accounts match “${q.trim()}”`} body="Search looks at email addresses and names." />}
         {users.map((u) => <Link key={u.id} to={`/users/${u.id}`} className="h-row" aria-current={id === u.id ? "true" : undefined}><span className="h-row__main"><span className="h-row__title">{u.name}</span><span className="h-row__sub">{u.email} · {u.household ?? "No household"}{u.role ? ` · ${u.role === "owner" ? "Owner" : "Member"}` : ""}</span></span>{u.suspended_at ? <span className="h-badge kind-broken">Suspended</span> : null}</Link>)}
       </section>
       {id && <Account id={id} />}

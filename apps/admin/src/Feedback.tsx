@@ -2,6 +2,14 @@ import { Button } from "@haven/ui";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, day, when } from "./api";
+import { Empty, Skeleton } from "./bits";
+
+const EMPTY: Record<string, { title: string; body: string }> = {
+  new: { title: "No new feedback", body: "You’re all caught up." },
+  in_progress: { title: "Nothing in progress", body: "Feedback you’re working on shows here." },
+  replied: { title: "No replied conversations", body: "Conversations you’ve answered show here until you mark them done." },
+  done: { title: "Nothing marked done yet", body: "Finished conversations are kept for 12 months." },
+};
 
 interface Row { id: string; kind: string; status: string; name: string | null; email: string | null; first: string; updated_at: number }
 const STATUSES = [["new", "New"], ["in_progress", "In progress"], ["replied", "Replied"], ["done", "Done"]] as const;
@@ -11,14 +19,15 @@ export function Feedback() {
   const { id } = useParams();
   const [status, setStatus] = useState<string>("new");
   const [data, setData] = useState<{ items: Row[]; counts: Record<string, number> }>({ items: [], counts: {} });
-  const load = () => api<typeof data>(`/feedback?status=${status}`).then(setData).catch(() => undefined);
+  const [loaded, setLoaded] = useState(false);
+  const load = () => api<typeof data>(`/feedback?status=${status}`).then((x) => { setData(x); setLoaded(true); }).catch(() => setLoaded(true));
   useEffect(() => { void load(); }, [status]);
   return (
     <div className={`split${id ? " split--detail" : ""}`}>
       <section className="split__list h-stack" aria-label="Inbox">
         <h1>Feedback</h1>
-        <div className="chips" role="group" aria-label="Status filter">{STATUSES.map(([k, l]) => <button key={k} className="h-chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l} {data.counts[k] ?? 0}</button>)}</div>
-        {!data.items.length && <p className="muted">Nothing here.</p>}
+        <div className="filter-seg" role="radiogroup" aria-label="Status filter">{STATUSES.map(([k, l]) => <button key={k} role="radio" aria-checked={status === k} onClick={() => setStatus(k)}><span>{l}</span><b>{data.counts[k] ?? 0}</b></button>)}</div>
+        {!loaded ? <Skeleton rows={3} /> : !data.items.length && <Empty {...EMPTY[status]} />}
         {data.items.map((r) => (
           <Link key={r.id} to={`/feedback/${r.id}`} className="h-row inbox-row" aria-current={id === r.id ? "true" : undefined}>
             <span className="h-row__main"><span className="chips"><span className={`h-badge kind-${r.kind}`}>{KIND[r.kind]}</span><span className="muted" style={{ fontSize: 12 }}>{r.name ?? "Deleted account"} · {day(r.updated_at)}</span></span>

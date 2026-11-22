@@ -2,6 +2,7 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { Button, Field, Segmented, Switch } from "@haven/ui";
 import { useEffect, useState } from "react";
 import { api, when } from "./api";
+import { InstallCard } from "./install";
 import { deviceName } from "./SignIn";
 
 const FLAGS: Record<string, [string, string]> = {
@@ -52,6 +53,7 @@ export function Account() {
         <Segmented label="Theme" value={theme.theme} onChange={(v) => setTheme({ ...theme, theme: v })} options={[{ value: "market", label: "Market Green" }, { value: "tomato", label: "Tomato & Ink" }, { value: "night", label: "Night Utility" }]} />
         <Segmented label="Mode" value={theme.mode} onChange={(v) => setTheme({ ...theme, mode: v })} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
         <span className="muted" style={{ fontSize: 12 }}>Saved on this device only. The Admin badge stays whatever you pick.</span></section>
+      <InstallCard />
       <section className="h-card h-stack" style={{ padding: 14 }}>
         <strong>{me?.email}</strong><span className="muted" style={{ fontSize: 12 }}>Admin · Google + passkey · session ends {me ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(me.expiresAt) : ""}</span>
         {msg && <p role="status" className="note">{msg}</p>}
@@ -60,7 +62,7 @@ export function Account() {
             await api("/passkey/register", { method: "POST", body: JSON.stringify({ response, name: deviceName() }) }); setMsg("Passkey added."); }
           catch { setMsg("Couldn’t add a passkey."); }
         }}>Add a passkey on this device</Button>
-        <Button variant="danger" onClick={async () => { await api("/signout", { method: "POST" }); location.href = "/sign-in"; }}>Sign out of admin</Button>
+        <Button variant="secondary" className="quiet-danger" onClick={async () => { await api("/signout", { method: "POST" }); location.href = "/sign-in"; }}>Sign out of admin</Button>
       </section>
     </div>
   );
