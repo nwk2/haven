@@ -1,10 +1,14 @@
-import { addDays, buildLines, shoppingWindows } from "@haven/meals-core";
+import { buildLines } from "@haven/meals-core";
 import { Button, Dialog } from "@haven/ui";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Skeleton } from "./Plan";
 import { useCtx } from "./ctx";
-import { amount, fmt, plural, ingredientOf, listFor, mealOf, newId, toRecipe, tripOf, useMealsData, useMutate, type MealsData, type TripRow } from "./data";
+import { progressOf, RunProgress } from "./progress";
+import { amount, fmt, plural, ingredientOf, listFor, mealOf, mealsOnRun, newId, runColor, runName, runSummary, toRecipe, upcomingRuns, useMealsData, useMutate, type MealsData, type TripRow } from "./data";
+import { RunPlanner, RunSheet, undoRun, type RunUndo } from "./runs";
+import { UndoToast } from "./RecipeEditor";
+import { Icon } from "@haven/ui";
 import { ModuleShell } from "./shell";
 
 export interface FinalLine { key: string; name: string; qty?: number; unit?: string; base: number; section: string }
@@ -14,13 +18,15 @@ export function Lists() {
   const d = useMealsData();
   const m = useMutate();
   const [moving, setMoving] = useState<TripRow | null>(null);
+  const [planner, setPlanner] = useState<{ run?: TripRow } | null>(null);
+  const [sheet, setSheet] = useState<TripRow | null>(null);
+  const [undo, setUndo] = useState<RunUndo | null>(null);
   if (!d) return <ModuleShell title="Lists" tab="lists"><Skeleton /></ModuleShell>;
-  const regular = d.trips.filter((t) => t.kind === "regular");
-  const windows = shoppingWindows(regular.map(tripOf));
-  const upcoming = d.trips.filter((t) => t.status !== "finished");
+  // Runs are planned here (decision, Nov 2026); a run holds the meals you pick.
+  const upcoming = upcomingRuns(d);
   const done = d.trips.filter((t) => t.status === "finished").sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
-  const color = (t: TripRow) => (t.kind === "topup" ? 4 : (regular.findIndex((x) => x.id === t.id) % 4) + 1);
-  const next = upcoming.find((t) => t.kind === "regular" && t.date >= today);
+  const next = upcoming.find((t) => t.date >= today);
+  const without = d.meals.filter((x) => x.status === "planned" && x.date >= today && !x.run_id).sort((a, b) => a.date.localeCompare(b.date));
 
   // Added since a finished trip (PRD › Edge cases › Trips and windows).
   const added = done.map((t) => {
@@ -38,32 +44,41 @@ export function Lists() {
 
   return (
     <ModuleShell title="Lists" tab="lists">
-      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming grocery runs</h2><p className="muted">Tap ‘+ Add run’ in the Grocery runs strip on Plan to plan a grocery run; its list builds itself from the meals it covers.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
+      <Button block onClick={() => setPlanner({})}>+ Plan a grocery run</Button>
+      {without.length > 0 && (upcoming.length > 0 || done.length > 0) && (
+        <button className="note-card" onClick={() => setPlanner({})}>
+          <strong>{plural(without.length, "meal")} not on any run</strong>
+          <span>{without.slice(0, 4).map((x) => `${fmt(x.date)} ${x.slot}`).join(", ")}{without.length > 4 ? `, +${without.length - 4} more` : ""}</span>
+        </button>
+      )}
+      {!upcoming.length && !added.length && <div className="empty-state"><h2>No upcoming grocery runs</h2><p className="muted">Plan one: pick the day you’ll shop and tick the meals to buy for. Its list builds itself.</p></div>}
       {added.map(({ trip, extra, lines }) => {
         const snapshot = lines.map((l) => ({ key: l.key, name: ingredientOf(d, l.ingredientId)?.name ?? "?", qty: l.shown.qty, unit: l.shown.unit, base: l.base, section: ingredientOf(d, l.ingredientId)?.section ?? "other" }));
         return (
           <section key={trip.id} className="h-card h-stack" style={{ padding: 16, borderColor: "var(--haven-accent-2)" }}>
             <strong>{extra.length} {extra.length === 1 ? "item" : "items"} added since the {fmt(trip.date)} grocery run</strong>
             <span>{extra.map((x) => `${x.name}${amount(x.shown.qty, x.shown.unit) ? ` · ${amount(x.shown.qty, x.shown.unit)}` : ""}`).join(" · ")}</span>
-            {next && <Button onClick={() => carry(trip, next, extra, snapshot)}>Add to the {fmt(next.date)} run</Button>}
-            <Button variant="secondary" onClick={async () => { const id = newId(); await m.put("meals_trips", id, { date: today, kind: "topup", status: "upcoming" }); await carry(trip, { id, date: today, kind: "topup", status: "upcoming" } as TripRow, extra, snapshot); }}>Start a top-up run today</Button>
+            {next && <Button onClick={() => carry(trip, next, extra, snapshot)}>Add to the {runName(d, next)} run</Button>}
+            <Button variant="secondary" onClick={async () => { const id = newId(); await m.put("meals_trips", id, { date: today, kind: "regular", status: "upcoming", name: "Top-up" }); await carry(trip, { id, date: today, kind: "regular", status: "upcoming" } as TripRow, extra, snapshot); }}>Start a top-up run today</Button>
           </section>
         );
       })}
       {upcoming.map((t) => {
-        const w = windows.find((x) => x.tripId === t.id);
         const l = listFor(d, t, household.measurement);
-        const total = l.rows.length + l.extras.length;
-        const inCart = l.rows.filter((r) => r.state.kind === "inCart").length + l.extras.filter((e) => e.checked).length;
         const overdue = t.date < today;
+        const meals = mealsOnRun(d, t);
         return (
-          <div key={t.id} className={`trip-card trip-${color(t)}`}>
-            <Link to={`/m/meals/lists/${t.id}`} className="trip-card__link">
-              <span className="spread"><strong style={{ fontSize: 20 }}>{fmt(t.date, { weekday: "short", month: "short", day: "numeric" })}</strong>
-                {overdue ? <span className="h-badge badge--accent2">Overdue</span> : t.kind === "topup" ? <span className="h-badge badge--ink">Top-up</span> : null}</span>
-              <span className="trip-card__sub">{t.kind === "topup" ? `${total} items` : w ? `Covers ${fmt(w.from, { weekday: "short" })}–${fmt(w.to, { weekday: "short" })} · ${plural(l.meals.length, "meal")}` : ""}</span>
-              <span className="progress" aria-hidden="true"><span style={{ width: total ? `${(inCart / total) * 100}%` : 0 }} /></span>
-              <span className="trip-card__sub"><strong>{inCart} of {total} in cart</strong></span>
+          <div key={t.id} className={`trip-card trip-${runColor(d, t)}`}>
+            <div className="spread" style={{ alignItems: "flex-start" }}>
+              <Link to={`/m/meals/lists/${t.id}`} className="trip-card__link" style={{ flex: 1 }}>
+                <span className="spread"><strong style={{ fontSize: 20 }}>{runName(d, t)}</strong>{overdue && <span className="h-badge badge--accent2">Overdue</span>}</span>
+                <span className={`run-status run-status--${runColor(d, t)}`} style={{ margin: 0 }}>{runSummary(d, t)}</span>
+                {meals.length > 0 && <span className="trip-card__sub">{meals.map((x) => `${fmt(x.date)} ${x.slot}`).join(" · ")}</span>}
+              </Link>
+              <button className="h-icon-btn" aria-label={`Manage the ${runName(d, t)} run`} onClick={() => setSheet(t)}>{Icon.more}</button>
+            </div>
+            <Link to={`/m/meals/lists/${t.id}`} className="trip-card__link" tabIndex={-1} aria-hidden="true">
+              <RunProgress p={progressOf(l)} strong />
             </Link>
             {overdue && <Button onClick={() => setMoving(t)}>Shop today instead</Button>}
           </div>
@@ -78,6 +93,9 @@ export function Lists() {
         </div>
       ))}
       {moving && <MoveTrip trip={moving} data={d} onClose={() => setMoving(null)} />}
+      {planner && <RunPlanner data={d} run={planner.run} onUndo={setUndo} onClose={() => setPlanner(null)} />}
+      {sheet && <RunSheet data={d} run={sheet} onUndo={setUndo} onClose={() => setSheet(null)} onEdit={() => { setPlanner({ run: sheet }); setSheet(null); }} />}
+      {undo && <UndoToast text={undo.text} onUndo={() => { void undoRun(m.put, undo); setUndo(null); }} onDone={() => setUndo(null)} />}
     </ModuleShell>
   );
 }
@@ -92,9 +110,10 @@ function MoveTrip({ trip, data, onClose }: { trip: TripRow; data: MealsData; onC
   const futureKeys = new Set(buildLines(listFor(data, trip, household.measurement).meals.filter((x) => x.date >= today), recipes, household.measurement).map((l) => l.key));
   const onlyPast = pastLines.filter((l) => !futureKeys.has(l.key));
   async function go() {
-    if (data.trips.some((t) => t.kind === "regular" && t.date === today && t.id !== trip.id)) { onClose(); return; }
     await m.put("meals_trips", trip.id, { date: today, status: "upcoming" });
-    if (!drop) for (const l of onlyPast) await m.item(trip.id, `extra_${newId()}`, { label: ingredientOf(data, l.ingredientId)?.name ?? "?", qty: l.shown.qty ?? null, unit: l.shown.unit ?? null, section: ingredientOf(data, l.ingredientId)?.section ?? "other", carried_from: trip.id });
+    // Past meals can't be bought for any more: take them off the run if you drop their items.
+    if (drop) for (const x of mealsOnRun(data, trip).filter((x) => x.date < today)) await m.put("meals_planned", x.id, { run_id: null });
+    // Keeping them: the past meals stay on the run, so their items stay on the list once (no extra copies).
     onClose();
   }
   return (
@@ -106,5 +125,4 @@ function MoveTrip({ trip, data, onClose }: { trip: TripRow; data: MealsData; onC
   );
 }
 
-export const windowEnd = (t: TripRow, d: MealsData) => shoppingWindows(d.trips.filter((x) => x.kind === "regular").map(tripOf)).find((w) => w.tripId === t.id)?.to ?? addDays(t.date, 0);
 export { mealOf };

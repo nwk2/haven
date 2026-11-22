@@ -14,6 +14,11 @@ for (const file of readdirSync("src", { recursive: true }).filter((f) => f.endsW
     // Expand interpolations: table loops and optional WHERE fragments.
     const variants = [];
     if (sql.includes("${table}") || sql.includes("${t}")) for (const t of ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"]) variants.push(sql.replaceAll("${table}", t).replaceAll("${t}", t));
+    else if (sql.includes("${Object.keys(WRITABLE)")) {
+      // Version reconcile: one MAX(version) per sync table, unioned (household.ts).
+      const tables = ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"];
+      variants.push(`SELECT MAX(${tables.map((t) => `COALESCE((SELECT MAX(version) FROM ${t} WHERE household_id = ?1), 0)`).join(", ")}) AS v`);
+    }
     else if (sql.includes("${m.table}")) continue;                       // generic upsert, columns from the WRITABLE allow-list (checked below)
     else variants.push(sql.replace(/\$\{status \? "WHERE f.status = \?" : ""\}/, "WHERE f.status = ?").replace(/\$\{sets\.join\(", "\)\}/, "name = ?"));
     for (const v of variants) {

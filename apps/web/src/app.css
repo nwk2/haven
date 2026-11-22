@@ -164,3 +164,25 @@ button.run-status--none { align-self: flex-start; min-height: 32px; padding: 0 2
 .cover { padding: 4px 12px; margin: 0; }
 .cover li { padding: 9px 0; border-bottom: 1px solid var(--haven-border); font-size: 14px; }
 .cover li:last-child { border-bottom: 0; }
+/* Lists: meals with no run; run planner checklist (decision Nov 2026: a run holds the meals you pick) */
+.note-card { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border-radius: var(--haven-shape-radius); border: 1.5px dashed var(--haven-accent-2); background: transparent; color: var(--haven-ink); font: inherit; font-size: 13px; cursor: pointer; }
+.note-card strong { color: var(--haven-accent-2); font-size: 14px; }
+.pick-meals { padding: 2px 4px; margin-bottom: 10px; }
+.pick-meals__day { font-size: 12px; font-weight: 700; color: var(--haven-muted); padding: 10px 8px 2px; }
+.pick-meal { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px; border: 0; background: none; color: var(--haven-ink); font: inherit; font-size: 14px; text-align: left; border-radius: 10px; cursor: pointer; }
+.pick-meal:disabled { opacity: 0.5; cursor: not-allowed; }
+.pick-meal__box { width: 24px; height: 24px; box-sizing: border-box; border-radius: 7px; border: 2px solid var(--haven-muted); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.pick-meal[aria-checked="true"] .pick-meal__box { background: var(--haven-accent); border-color: var(--haven-accent); color: var(--haven-on-accent); }
+.pick-meal .run-status { margin: 2px 0 0; }
+.day-pick button small { font-size: 9px; }
+button.run-status--btn { align-self: flex-start; min-height: 32px; padding: 0 2px; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+/* Run progress: in cart / have it / couldn't get as segments of one bar (decision Nov 2026). */
+.run-progress { display: flex; flex-direction: column; gap: 6px; }
+.seg-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; background: var(--haven-progress-track); overflow: hidden; }
+.seg { display: block; height: 100%; flex-shrink: 0; }
+.seg[style*="width: 0%"] { display: none; }
+.seg--cart { background: var(--haven-accent); }
+.seg--have { background: var(--haven-muted); opacity: 0.7; }
+.seg--cannot { background: var(--haven-accent-2); }
+.run-progress__text { font-size: 13px; color: var(--haven-on-trip-muted); }
+.run-progress__text--done strong, .run-progress__text--done { color: var(--haven-ink); }

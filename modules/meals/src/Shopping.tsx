@@ -3,7 +3,8 @@ import { Button, Field, Icon, Sheet } from "@haven/ui";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCtx } from "./ctx";
-import { amount, fmt, ingredientOf, listFor, nameCase, newId, SECTIONS, sectionName, useMealsData, useMutate, type ItemRow, type MealsData, type TripRow } from "./data";
+import { progressOf, RunProgress, sectionCount } from "./progress";
+import { amount, fmt, ingredientOf, listFor, nameCase, newId, runColor, runName, upcomingRuns, SECTIONS, sectionName, useMealsData, useMutate, type ItemRow, type MealsData, type TripRow } from "./data";
 import type { FinalLine } from "./Lists";
 
 export function Shopping() {
@@ -47,20 +48,19 @@ export function Shopping() {
   const sectionOf = (r: ListRow) => ingredientOf(d, r.line.ingredientId)?.section ?? "other";
   const todo = list.rows.filter((r) => r.state.kind === "todo" || r.state.kind === "needsMore" || r.state.kind === "unavailable");
   const total = list.rows.length + list.extras.length;
-  const got = list.rows.filter((r) => r.state.kind === "inCart").length + list.extras.filter((e) => e.checked).length;
   const toggle = (r: ListRow) => {
     const checked = r.state.kind === "inCart";
     return m.item(trip.id, r.line.key, checked ? { checked: 0, bought_qty: null } : { checked: 1, checked_by: user.id, checked_at: Date.now(), bought_qty: r.line.base, unavailable: 0 });
   };
-  const color = trip.kind === "topup" ? 4 : (d.trips.filter((t) => t.kind === "regular").findIndex((t) => t.id === trip.id) % 4) + 1;
+  const color = runColor(d, trip);
 
   return (<>
     <header className={`shop-head trip-${color}`}>
       <div className="spread"><Link to="/m/meals/lists" className="h-icon-btn" aria-label="Back to lists">{Icon.back}</Link>
         <span className="muted" role="status" style={{ fontSize: 12 }}>{status.state === "offline" ? `Offline · ${status.pending} changes waiting` : status.state === "synced" ? "Synced" : "Syncing…"}</span>
         <Button variant="secondary" onClick={() => setFinishing(true)}>Finish run</Button></div>
-      <div className="spread" style={{ padding: "0 8px" }}><h1 style={{ margin: 0, fontSize: 24 }}>{fmt(trip.date, { weekday: "short", month: "short", day: "numeric" })}</h1></div>
-      <div style={{ padding: "0 8px" }}><span className="progress" aria-hidden="true"><span style={{ width: total ? `${(got / total) * 100}%` : 0 }} /></span><strong style={{ fontSize: 13 }}>{got} of {total} in cart</strong></div>
+      <div className="spread" style={{ padding: "0 8px" }}><h1 style={{ margin: 0, fontSize: 24 }}>{runName(d, trip)}</h1></div>
+      <div style={{ padding: "0 8px" }}><RunProgress p={progressOf(list)} strong /></div>
     </header>
     <main className="page h-stack" style={{ paddingBottom: 110 }}>
       <div className="h-sr" aria-live="polite">{announce}</div>
@@ -75,7 +75,7 @@ export function Shopping() {
         if (!rows.length && !extras.length) return null;
         return (
           <section key={sec} className="h-stack" aria-labelledby={`s-${sec}`}>
-            <div className="spread"><h2 id={`s-${sec}`} style={{ margin: 0, fontSize: 15 }}>{label}</h2><span className="muted" style={{ fontSize: 12 }}>{open.length + openExtras.length ? `${open.length + openExtras.length} left` : "All in cart"}</span></div>
+            <div className="spread"><h2 id={`s-${sec}`} style={{ margin: 0, fontSize: 15 }}>{label}</h2><span className="muted" style={{ fontSize: 12 }}>{sectionCount(open.filter((r) => r.state.kind !== "unavailable").length + openExtras.filter((e) => !e.unavailable).length, open.filter((r) => r.state.kind === "unavailable").length + openExtras.filter((e) => !!e.unavailable).length)}</span></div>
             {open.map((r) => <ItemLine key={r.line.key} d={d} row={r} isNew={!!seen.current && !seen.current.has(r.line.key)} onToggle={() => toggle(r)} onMore={() => setSheet(r)} />)}
             {openExtras.map((e) => <ExtraLine key={e.id} item={e} onToggle={() => m.item(trip.id, e.key, { checked: 1, checked_by: user.id, checked_at: Date.now() })} onMore={() => setExtraSheet(e)} />)}
             {cart.length + cartExtras.length > 0 && <span className="h-section-title" style={{ fontSize: 11 }}>In cart · {cart.length + cartExtras.length}</span>}
@@ -178,7 +178,8 @@ function ExtraSheet({ trip, item, onClose }: { trip: TripRow; item: ItemRow; onC
 function FinishTrip({ d, trip, todo, extras, onClose, onDone }: { d: MealsData; trip: TripRow; todo: ListRow[]; extras: ItemRow[]; onClose: () => void; onDone: () => void }) {
   const { household, today, user } = useCtx();
   const m = useMutate();
-  const next = d.trips.find((t) => t.kind === "regular" && t.status !== "finished" && t.date > trip.date);
+  // Next run to carry unbought items to: any later run, including another one on the same day.
+  const next = upcomingRuns(d).find((t) => t.id !== trip.id && t.date >= trip.date);
   const [choice, setChoice] = useState<"move" | "drop">(next ? "move" : "drop");
   const left = todo.length + extras.length;
   async function finish() {
@@ -200,7 +201,7 @@ function FinishTrip({ d, trip, todo, extras, onClose, onDone }: { d: MealsData; 
         <span className="muted">{left ? `${left} ${left === 1 ? "item is" : "items are"} still unchecked.` : "Everything is in the cart."}</span>
         {left > 0 && <ul className="plain h-card" style={{ padding: "4px 12px" }}>{todo.map((r) => <li key={r.line.key} className="ing-line">{ingredientOf(d, r.line.ingredientId)?.name} <span className="muted">{amount(r.line.shown.qty, r.line.shown.unit)}</span></li>)}{extras.map((e) => <li key={e.id} className="ing-line">{e.label} <span className="muted">Extra</span></li>)}</ul>}
         {left > 0 && <div role="radiogroup" aria-label="Unchecked items" className="h-stack">
-          <button role="radio" aria-checked={choice === "move"} disabled={!next} className="h-row pick" onClick={() => setChoice("move")}><span className="h-row__main"><span className="h-row__title">{next ? `Move ${left} to the ${fmt(next.date)} run` : "No later run yet"}</span><span className="h-row__sub">{next ? "They appear on that list as carried items" : "Plan another grocery run to carry items over"}</span></span></button>
+          <button role="radio" aria-checked={choice === "move"} disabled={!next} className="h-row pick" onClick={() => setChoice("move")}><span className="h-row__main"><span className="h-row__title">{next ? `Move ${left} to the ${runName(d, next)} run` : "No later run yet"}</span><span className="h-row__sub">{next ? "They appear on that list as carried items" : "Plan another grocery run to carry items over"}</span></span></button>
           <button role="radio" aria-checked={choice === "drop"} className="h-row pick" onClick={() => setChoice("drop")}><span className="h-row__main"><span className="h-row__title">Don’t need them</span><span className="h-row__sub">Clear them; the meals stay planned</span></span></button>
         </div>}
         <Button block onClick={finish}>Finish run</Button>

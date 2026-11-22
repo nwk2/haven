@@ -13,8 +13,8 @@ const WRITABLE: Record<string, string[]> = {
   activity: ["module_id", "member_id", "text", "at", "deleted"],
   meals_ingredients: ["name", "default_unit", "section", "merged_into", "deleted"],
   meals_recipes: ["title", "base_servings", "ingredients", "steps", "tags", "source", "photo_key", "archived_at", "deleted_at", "deleted"],
-  meals_planned: ["date", "slot", "recipe_id", "servings", "status", "bought_on_trip_id", "recipe_snapshot", "deleted"],
-  meals_trips: ["date", "kind", "status", "finished_at", "reopen_until", "final_lines", "deleted"],
+  meals_planned: ["date", "slot", "recipe_id", "servings", "status", "run_id", "bought_on_trip_id", "recipe_snapshot", "deleted"],
+  meals_trips: ["date", "kind", "name", "status", "finished_at", "reopen_until", "final_lines", "deleted"],
   meals_items: ["trip_id", "key", "checked", "checked_by", "checked_at", "bought_qty", "bought_unit", "unavailable", "have_it", "carried_from", "label", "qty", "unit", "section", "deleted"],
 };
 const PULL_TABLES = Object.keys(WRITABLE);
@@ -28,6 +28,18 @@ export class Household implements DurableObject {
   constructor(private state: DurableObjectState, private env: Env) {
     state.storage.sql.exec("CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, at INTEGER)");
     state.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)");
+  }
+
+  private reconciled = false;
+  /** A migration may have raised row versions in D1; never hand out a version at or below them. */
+  private async reconcile(householdId: string) {
+    if (this.reconciled) return;
+    const row = await this.env.DB.prepare(
+      // One scalar MAX over a subquery per table: D1 limits UNION terms in a single SELECT.
+      `SELECT MAX(${Object.keys(WRITABLE).map((t) => `COALESCE((SELECT MAX(version) FROM ${t} WHERE household_id = ?1), 0)`).join(", ")}) AS v`,
+    ).bind(householdId).first<{ v: number | null }>();
+    if ((row?.v ?? 0) > this.version()) this.state.storage.sql.exec("INSERT OR REPLACE INTO meta (k, v) VALUES ('version', ?)", row!.v);
+    this.reconciled = true;
   }
 
   private version(): number {
@@ -79,6 +91,7 @@ export class Household implements DurableObject {
     const current = Number(this.env.PROTOCOL_VERSION);
     if (msg.protocol < current - 1) return { type: "too_old", minProtocol: current - 1 };
 
+    await this.reconcile(who.householdId);
     if (msg.type === "pull") return this.pull(who.householdId, msg.since);
     if (msg.type === "presence") {
       // Ephemeral "Jon is editing" (PRD › Recipe editor rules): relayed, never stored.

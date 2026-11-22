@@ -1,16 +1,19 @@
-import { addDays, shoppingWindows } from "@haven/meals-core";
+import { addDays } from "@haven/meals-core";
 import { Button, Dialog, Icon, Sheet, Stepper } from "@haven/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCtx } from "./ctx";
-import { cap, fmt, ingredientOf, listFor, newId, plural, sectionName, SLOTS, tripOf, useMealsData, useMutate, type MealRow, type MealsData, type TripRow } from "./data";
+import { progressOf, RunProgress, sectionCount } from "./progress";
+import { cap, fmt, ingredientOf, listFor, newId, plural, runColor, runName, sectionName, SLOTS, upcomingRuns, useMealsData, useMutate, type MealRow, type MealsData } from "./data";
+import type { TripRow } from "./data";
+import { AssignSheet, RunPlanner, RunSheet, undoRun, type RunUndo } from "./runs";
 import { ModuleShell } from "./shell";
 import { UndoToast } from "./RecipeEditor";
 
 /**
- * Plan (decision, Nov 2026: "A + fix in place"). Grocery runs live in one strip at the top; adding one
- * shows which meals it will cover before you confirm. Days never re-group or move. Each upcoming meal
- * says which run it's on, and "No grocery run yet ›" opens the same sheet with that day picked.
+ * Plan (decision, Nov 2026: plan grocery runs from Lists; a run holds the meals you pick).
+ * Plan is about meals. Each upcoming meal says which run it's on; tapping that line puts it on a run
+ * in place ("No grocery run yet ›" → Add to the Sun 22 run, or a new run).
  */
 export function Plan() {
   const { today } = useCtx();
@@ -19,28 +22,20 @@ export function Plan() {
   const [offset, setOffset] = useState(0);
   const [adding, setAdding] = useState<string | null>(null);
   const [open, setOpen] = useState<MealRow | null>(null);
+  const [assignFor, setAssignFor] = useState<MealRow | null>(null);
+  const [planner, setPlanner] = useState<{ focus?: MealRow } | null>(null);
   const [runSheet, setRunSheet] = useState<TripRow | null>(null);
-  const [planSheet, setPlanSheet] = useState<{ day: string | null } | null>(null);
-  const [confirm, setConfirm] = useState<TripRow | null>(null);
-  const [undo, setUndo] = useState<TripRow | null>(null);
+  const [editRun, setEditRun] = useState<TripRow | null>(null);
+  const [undo, setUndo] = useState<RunUndo | null>(null);
 
   // Sliding window (decision, Nov 2026): today and the next six days; arrows move a week at a time.
   const start = addDays(today, 7 * offset);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(start, i)), [start]);
 
   if (!d) return <ModuleShell title="Plan" tab="plan"><Skeleton /></ModuleShell>;
-  const runs = runsOf(d);
-  const upcoming = runs.regular.filter((t) => t.status !== "finished");
   const mealsOn = (day: string) => d.meals.filter((x) => x.date === day && x.status === "planned").sort((a, b) => SLOTS.indexOf(a.slot as never) - SLOTS.indexOf(b.slot as never));
-  const uncovered = d.meals.filter((x) => x.status === "planned" && x.date >= today && !runs.covering(x.date));
+  const runById = (id?: string | null) => (id ? d.trips.find((t) => t.id === id) : undefined);
   const empty = !d.meals.some((x) => x.status === "planned" && x.date >= start && x.date <= days[6]);
-
-  async function cancel(run: TripRow) {
-    setRunSheet(null);
-    if (d!.items.some((i) => i.trip_id === run.id && i.checked)) { setConfirm(run); return; }
-    await m.put("meals_trips", run.id, { deleted: 1 });
-    setUndo(run);
-  }
 
   return (
     <ModuleShell title="Plan" tab="plan" header={
@@ -50,49 +45,32 @@ export function Plan() {
           <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "Today onwards" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
         <button className="h-icon-btn" aria-label="Next 7 days" onClick={() => setOffset(offset + 1)}>›</button>
       </div>}>
-      <section className="runs h-card" aria-labelledby="runs-h">
-        <h2 id="runs-h" className="h-section-title">Grocery runs</h2>
-        <div className="chips">
-          {upcoming.map((run) => {
-            const n = runs.mealsOf(run).length; const overdue = run.date < today;
-            return (
-              <button key={run.id} className="run-chip" onClick={() => setRunSheet(run)}
-                aria-label={`${fmt(run.date, { weekday: "long", day: "numeric", month: "long" })} grocery run, ${overdue ? "overdue" : plural(n, "meal")}`}>
-                <span className={`run-dot run-dot--${runs.colorOf(run.id)}`} aria-hidden="true" />
-                {fmt(run.date)} · {overdue ? "overdue" : plural(n, "meal")}
-              </button>
-            );
-          })}
-          <button className="run-chip run-chip--add" onClick={() => setPlanSheet({ day: null })}>+ Add run</button>
-        </div>
-        {!upcoming.length && <p className="runs__hint">No runs planned. Add one and its list builds itself from the meals it covers.</p>}
-        {upcoming.length > 0 && uncovered.length > 0 && <p className="runs__hint">{plural(uncovered.length, "meal")} {uncovered.length === 1 ? "has" : "have"} no grocery run yet.</p>}
-      </section>
       {empty && (
         <section className="h-card h-stack" style={{ padding: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Nothing planned for the next 7 days</h2>
-          <p className="muted" style={{ margin: 0 }}>Add meals to days, then add a grocery run to shop for them.</p>
+          <p className="muted" style={{ margin: 0 }}>Add meals to days. Then plan a grocery run from Lists, or from any meal here.</p>
           {d.recipes.length ? <Button onClick={() => setAdding(days.find((x) => x >= today) ?? days[0])}>Add a meal</Button> : <Link className="h-btn h-btn--primary" to="/m/meals/recipes/new">Add your first recipe</Link>}
         </section>
       )}
       <div className="plan-layout"><div className="plan-days">
         {days.map((day) => {
-          const meals = mealsOn(day); const past = day < today; const run = runs.regular.find((t) => t.date === day);
+          const meals = mealsOn(day); const past = day < today;
+          const runsToday = upcomingRuns(d).filter((t) => t.date === day);
           return (
             <div key={day} className={`day h-card${past ? " day--past" : ""}${day === today ? " day--today" : ""}`}>
               <div className="day__date"><span>{day === today ? "Today" : fmt(day, { weekday: "short" })}</span><strong>{fmt(day, { day: "numeric" })}</strong></div>
               <div className="day__meals">
-                {run && <button className={`run-tag run-tag--${runs.colorOf(run.id)}`} onClick={() => setRunSheet(run)}>Grocery run</button>}
+                {runsToday.length > 0 && <div className="chips">{runsToday.map((t) => <button key={t.id} className={`run-tag run-tag--${runColor(d, t)}`} onClick={() => setRunSheet(t)}>{t.name ? `Grocery run · ${t.name}` : "Grocery run"}</button>)}</div>}
                 {meals.map((x) => {
-                  const cov = past ? undefined : runs.covering(x.date);
+                  const run = runById(x.run_id);
                   return (
                     <div key={x.id} className="meal-wrap">
                       <button className="meal" onClick={() => setOpen(x)}>
                         <span className="meal__slot">{cap(x.slot)}</span><span>{d.recipes.find((r) => r.id === x.recipe_id)?.title ?? x.recipe_snapshot?.title ?? "Deleted recipe"}</span>
                       </button>
-                      {!past && (cov
-                        ? <span className={`run-status run-status--${runs.colorOf(cov.id)}`}><span className={`run-dot run-dot--${runs.colorOf(cov.id)}`} aria-hidden="true" />On the {fmt(cov.date)} run</span>
-                        : <button className="run-status run-status--none" onClick={() => setPlanSheet({ day: x.date })}><span className="run-dot run-dot--none" aria-hidden="true" />No grocery run yet ›</button>)}
+                      {!past && (run
+                        ? <button className={`run-status run-status--${runColor(d, run)} run-status--btn`} onClick={() => setAssignFor(x)}><span className={`run-dot run-dot--${runColor(d, run)}`} aria-hidden="true" />On the {runName(d, run)} run</button>
+                        : <button className="run-status run-status--none" onClick={() => setAssignFor(x)}><span className="run-dot run-dot--none" aria-hidden="true" />No grocery run yet ›</button>)}
                     </div>
                   );
                 })}
@@ -104,92 +82,12 @@ export function Plan() {
       </div><NextTripPanel data={d} /></div>
       {adding && <AddMeal day={adding} data={d} onClose={() => setAdding(null)} />}
       {open && <MealSheet meal={open} data={d} onClose={() => setOpen(null)} />}
-      {planSheet && <PlanRunSheet data={d} initial={planSheet.day} onClose={() => setPlanSheet(null)} />}
-      {runSheet && <RunSheet data={d} run={runSheet} onCancel={() => cancel(runSheet)} onClose={() => setRunSheet(null)} />}
-      {confirm && (
-        <Dialog title={`Cancel the ${fmt(confirm.date)} grocery run?`} body="Some items on its list are already bought and stay recorded. Unbought items move to the previous grocery run." onClose={() => setConfirm(null)}>
-          <Button variant="danger" onClick={async () => { await m.put("meals_trips", confirm.id, { deleted: 1 }); setConfirm(null); }}>Cancel grocery run</Button>
-          <Button variant="text" onClick={() => setConfirm(null)}>Keep it</Button>
-        </Dialog>
-      )}
-      {undo && <UndoToast text={`${fmt(undo.date)} grocery run cancelled`} onUndo={() => { void m.put("meals_trips", undo.id, { deleted: 0 }); setUndo(null); }} onDone={() => setUndo(null)} />}
+      {assignFor && <AssignSheet data={d} meal={assignFor} onUndo={setUndo} onClose={() => setAssignFor(null)} onNewRun={() => { setPlanner({ focus: assignFor }); setAssignFor(null); }} />}
+      {planner && <RunPlanner data={d} focus={planner.focus} onUndo={setUndo} onClose={() => setPlanner(null)} />}
+      {runSheet && <RunSheet data={d} run={runSheet} onUndo={setUndo} onClose={() => setRunSheet(null)} onEdit={() => { setEditRun(runSheet); setRunSheet(null); }} />}
+      {editRun && <RunPlanner data={d} run={editRun} onUndo={setUndo} onClose={() => setEditRun(null)} />}
+      {undo && <UndoToast text={undo.text} onUndo={() => { void undoRun(m.put, undo); setUndo(null); }} onDone={() => setUndo(null)} />}
     </ModuleShell>
-  );
-}
-
-/** Regular grocery runs, which run covers a date, and the colour each run keeps everywhere (1–4). */
-function runsOf(d: MealsData, extraDate?: string) {
-  const regular = d.trips.filter((t) => t.kind === "regular");
-  const trips = regular.map(tripOf).concat(extraDate ? [{ id: "__new", date: extraDate, kind: "regular" as const }] : []);
-  const windows = shoppingWindows(trips);
-  const coveringId = (date: string) => windows.find((w) => date >= w.from && date <= w.to)?.tripId;
-  return {
-    regular,
-    covering: (date: string) => { const id = coveringId(date); return id ? regular.find((t) => t.id === id) : undefined; },
-    coveringId,
-    mealsOf: (run: TripRow) => d.meals.filter((x) => x.status === "planned" && coveringId(x.date) === run.id),
-    colorOf: (id: string) => (regular.findIndex((t) => t.id === id) % 4) + 1,
-  };
-}
-
-function PlanRunSheet({ data, initial, onClose }: { data: MealsData; initial: string | null; onClose: () => void }) {
-  const { today } = useCtx();
-  const m = useMutate();
-  const taken = new Set(data.trips.filter((t) => t.kind === "regular").map((t) => t.date));
-  // A meal's day can be in the past only if it's today's; otherwise default to the meal's own day.
-  const first = initial && initial >= today && !taken.has(initial) ? initial : null;
-  const [pick, setPick] = useState<string | null>(first);
-  const choices = Array.from({ length: 14 }, (_, i) => addDays(today, i));
-  const now = runsOf(data);
-  const after = runsOf(data, pick ?? undefined);
-  const covered = pick ? data.meals.filter((x) => x.status === "planned" && x.date >= today && after.coveringId(x.date) === "__new").sort((a, b) => a.date.localeCompare(b.date)) : [];
-  const moved = covered.filter((x) => now.covering(x.date));
-  const title = (x: MealRow) => data.recipes.find((r) => r.id === x.recipe_id)?.title ?? "Deleted recipe";
-
-  return (
-    <Sheet title="Plan a grocery run" onClose={onClose}>
-      <p className="muted" style={{ margin: "0 0 10px" }}>Which day will you shop?</p>
-      <div className="day-pick" role="radiogroup" aria-label="Day">
-        {choices.map((day) => (
-          <button key={day} type="button" role="radio" aria-checked={pick === day} disabled={taken.has(day)} onClick={() => setPick(day)}
-            aria-label={`${fmt(day, { weekday: "long", day: "numeric", month: "long" })}${taken.has(day) ? ", already a grocery run" : ""}`}>
-            <span>{day === today ? "Today" : fmt(day, { weekday: "short" })}</span><b>{fmt(day, { day: "numeric" })}</b>
-          </button>
-        ))}
-      </div>
-      {!pick && <p className="muted" style={{ fontSize: 13 }}>Pick a day to see which meals it will cover.</p>}
-      {pick && (
-        <div className="h-stack" style={{ gap: 10 }}>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>It will cover these meals, until your next run:</p>
-          <ul className="plain h-card cover">
-            {covered.length ? covered.map((x) => <li key={x.id}>{fmt(x.date)} · {cap(x.slot)}<br /><span className="muted">{title(x)}</span></li>)
-              : <li className="muted">No meals between {fmt(pick)} and your next run yet. You can still plan it.</li>}
-          </ul>
-          {moved.length > 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>{moved.map((x) => `${fmt(x.date)} ${x.slot}`).join(", ")} will move here from the {fmt(now.covering(moved[0].date)!.date)} run.</p>}
-          <Button block onClick={async () => { await m.put("meals_trips", newId(), { date: pick, kind: "regular", status: "upcoming" }); onClose(); }}>Plan run for {fmt(pick)}</Button>
-        </div>
-      )}
-    </Sheet>
-  );
-}
-
-function RunSheet({ data, run, onCancel, onClose }: { data: MealsData; run: TripRow; onCancel: () => void; onClose: () => void }) {
-  const { today } = useCtx();
-  const runs = runsOf(data);
-  const meals = runs.mealsOf(run).sort((a, b) => a.date.localeCompare(b.date));
-  const title = (x: MealRow) => data.recipes.find((r) => r.id === x.recipe_id)?.title ?? "Deleted recipe";
-  return (
-    <Sheet title={`${fmt(run.date, { weekday: "short", day: "numeric", month: "short" })} grocery run`} onClose={onClose}>
-      <p className="muted" style={{ margin: "0 0 10px" }}>{run.date < today ? "This run’s date has passed. Open its list to finish it, or shop today instead from Lists." : "Buys everything for these meals:"}</p>
-      <ul className="plain h-card cover">
-        {meals.length ? meals.map((x) => <li key={x.id}>{fmt(x.date)} · {cap(x.slot)}<br /><span className="muted">{title(x)}</span></li>)
-          : <li className="muted">No meals before your next run yet.</li>}
-      </ul>
-      <div className="h-stack" style={{ marginTop: 12 }}>
-        <Link className="h-btn h-btn--primary h-btn--block" to={`/m/meals/lists/${run.id}`}>Open list</Link>
-        <Button variant="secondary" block onClick={onCancel}>Cancel this run</Button>
-      </div>
-    </Sheet>
   );
 }
 
@@ -268,18 +166,21 @@ export const Skeleton = () => <div className="h-stack" aria-hidden="true">{[0, 1
 /** Desktop only: next-trip summary beside the week (canvas › Plan — desktop). */
 function NextTripPanel({ data }: { data: MealsData }) {
   const { today, household } = useCtx();
-  const next = data.trips.find((t) => t.status !== "finished" && t.date >= today);
-  if (!next) return <aside className="plan-panel h-card"><strong>No upcoming grocery run</strong><span className="muted">Tap ‘+ Add run’ above to plan one.</span></aside>;
+  const next = upcomingRuns(data).find((t) => t.date >= today);
+  if (!next) return <aside className="plan-panel h-card"><strong>No upcoming grocery run</strong><span className="muted">Plan one from Lists, or from any meal’s “No grocery run yet”.</span></aside>;
   const l = listFor(data, next, household.measurement);
-  const bySection = new Map<string, number>();
-  for (const r of l.rows) if (r.state.kind !== "inCart" && r.state.kind !== "haveIt") { const s = ingredientOf(data, r.line.ingredientId)?.section ?? "other"; bySection.set(s, (bySection.get(s) ?? 0) + 1); }
-  const total = l.rows.length + l.extras.length; const got = l.rows.filter((r) => r.state.kind === "inCart").length + l.extras.filter((e) => e.checked).length;
+  // Per section: [left, couldn’t get] — the same split Shopping shows (open rows, not in cart / have it, plus open extras).
+  const bySection = new Map<string, [number, number]>();
+  const add = (s: string, cannot: boolean) => { const c = bySection.get(s) ?? [0, 0]; if (cannot) c[1]++; else c[0]++; bySection.set(s, c); };
+  for (const r of l.rows) if (r.state.kind !== "inCart" && r.state.kind !== "haveIt") add(ingredientOf(data, r.line.ingredientId)?.section ?? "other", r.state.kind === "unavailable");
+  for (const e of l.extras) if (!e.checked) add(e.section ?? "other", !!e.unavailable);
+  const total = l.rows.length + l.extras.length;
   return (
     <aside className="plan-panel h-card" aria-label="Next grocery run">
       <span className="h-section-title">Next grocery run</span>
-      <strong style={{ fontSize: 18 }}>{fmt(next.date)} · {plural(total, "item")}</strong>
-      <span className="progress" aria-hidden="true"><span style={{ width: total ? `${(got / total) * 100}%` : 0 }} /></span>
-      {[...bySection].map(([k, n]) => <div key={k} className="spread" style={{ fontSize: 14 }}><span>{sectionName(k)}</span><span className="muted">{n} left</span></div>)}
+      <strong style={{ fontSize: 18 }}>{runName(data, next)} · {plural(total, "item")}</strong>
+      <RunProgress p={progressOf(l)} />
+      {[...bySection].map(([k, [left, cannot]]) => <div key={k} className="spread" style={{ fontSize: 14 }}><span>{sectionName(k)}</span><span className="muted">{sectionCount(left, cannot)}</span></div>)}
       <Link className="h-btn h-btn--primary" to={`/m/meals/lists/${next.id}`}>Open list</Link>
     </aside>
   );

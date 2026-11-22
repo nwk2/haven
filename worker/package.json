@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --no-warnings test/purge.test.mjs && node --no-warnings test/sql-schema.test.mjs"
+    "test": "node --experimental-strip-types --no-warnings test/purge.test.mjs && node --no-warnings test/sql-schema.test.mjs && node --no-warnings test/migration-0006.test.mjs"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13",
