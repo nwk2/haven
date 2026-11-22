@@ -2,15 +2,13 @@ export type ThemeId = "market" | "tomato" | "night";
 export type Mode = "system" | "light" | "dark";
 export const BASE = { theme: "market" as ThemeId, mode: "system" as Mode };
 
-/** 150 ms cross-fade where supported, skipped for reduced motion. */
+/** Apply immediately. No view transition: the 150 ms cross-fade CSS was never
+ * written, so the browser-default transition blends dark↔light through grey. */
 export function applyTheme(t: { theme: ThemeId; mode: Mode }) {
   const html = document.documentElement;
   if (html.dataset.theme === t.theme && html.dataset.mode === t.mode) return;
-  const change = () => { html.dataset.theme = t.theme; html.dataset.mode = t.mode; };
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
-  if (!reduce && doc.startViewTransition) doc.startViewTransition(change);
-  else change();
+  html.dataset.theme = t.theme;
+  html.dataset.mode = t.mode;
 }
 
 /** Remember the member's choice so the next launch paints it before React loads. */

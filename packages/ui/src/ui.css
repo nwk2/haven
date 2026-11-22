@@ -29,7 +29,7 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-modhead h1 { margin: 0; font-size: 26px; }
 .h-icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--haven-ink); border-radius: var(--haven-shape-radius); cursor: pointer; }
 
-.h-tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--haven-surface); border-top: 1px solid var(--haven-border);
+.h-tabbar { position: fixed; left: 0; right: 0; max-width: 480px; margin: 0 auto; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--haven-surface); border-top: 1px solid var(--haven-border);
   padding-bottom: env(safe-area-inset-bottom, 0px); }
 .h-tabbar a { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--haven-muted); font-size: 12px; text-decoration: none; }
 .h-tabbar a[aria-current="page"] { color: var(--haven-accent); font-weight: 700; }
@@ -62,7 +62,7 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-seg button[aria-checked="true"] { background: var(--haven-ink); color: var(--haven-bg); }
 
 .h-scrim { position: fixed; inset: 0; background: var(--haven-overlay-scrim); z-index: 50; }
-.h-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 51; max-height: 90vh; overflow-y: auto; background: var(--haven-bg); border-radius: 22px 22px 0 0;
+.h-sheet { position: fixed; left: 0; right: 0; max-width: 480px; margin: 0 auto; bottom: 0; z-index: 51; max-height: 90vh; overflow-y: auto; background: var(--haven-bg); border-radius: 22px 22px 0 0;
   border-top: var(--haven-shape-outline-width) solid var(--haven-border); padding: 8px 16px calc(24px + env(safe-area-inset-bottom, 0px)); animation: h-up var(--haven-motion-sheet-open) both; }
 .h-sheet__handle { width: 40px; height: 5px; border-radius: 3px; background: var(--haven-muted); opacity: 0.5; margin: 0 auto 8px; }
 .h-dialog { position: fixed; z-index: 51; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); max-width: 480px; margin: 0 auto; background: var(--haven-surface); border-radius: 18px;

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Segmented } from "@haven/ui";
 import { api } from "../api";
 import { BackHeader } from "../components/ModuleHeader";
@@ -12,10 +13,19 @@ const THEMES: { id: ThemeId; name: string; tag: string }[] = [
 
 export function Appearance() {
   const { me, refresh } = useSession();
+  // Pending choice: the indicators render from this until the server state
+  // catches up after the PATCH + refresh, so everything moves at tap time.
+  const [pending, setPending] = useState<{ theme: ThemeId; mode: Mode } | null>(null);
+  useEffect(() => {
+    if (pending && me && me.user.theme === pending.theme && me.user.mode === pending.mode) setPending(null);
+  }, [me, pending]);
   if (!me) return null;
+  const theme = pending?.theme ?? me.user.theme;
+  const mode = pending?.mode ?? me.user.mode;
   const set = async (t: { theme?: ThemeId; mode?: Mode }) => {
-    const next = { theme: t.theme ?? me.user.theme, mode: t.mode ?? me.user.mode };
+    const next = { theme: t.theme ?? theme, mode: t.mode ?? mode };
     applyTheme(next); cacheTheme(me.user.id, next);
+    setPending(next);
     await api("/api/me", { method: "PATCH", body: JSON.stringify(t) }).catch(() => undefined);
     await refresh();
   };
@@ -26,7 +36,7 @@ export function Appearance() {
         <h2 id="th" className="h-section-title">Theme</h2>
         <div role="radiogroup" aria-labelledby="th" className="h-stack">
           {THEMES.map((t) => (
-            <button key={t.id} type="button" role="radio" aria-checked={me.user.theme === t.id} className="h-row theme-option" data-preview={t.id} onClick={() => set({ theme: t.id })}>
+            <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className="h-row theme-option" data-preview={t.id} onClick={() => set({ theme: t.id })}>
               <span className="swatches" data-theme={t.id} data-mode="light" aria-hidden="true"><i /><i /><i /></span>
               <span className="h-row__main"><span className="h-row__title">{t.name}</span><span className="h-row__sub">{t.tag}</span></span>
             </button>
@@ -35,9 +45,9 @@ export function Appearance() {
       </section>
       <section className="h-stack" aria-labelledby="md">
         <h2 id="md" className="h-section-title">Mode</h2>
-        <Segmented label="Mode" value={me.user.mode} onChange={(mode) => set({ mode })}
+        <Segmented label="Mode" value={mode} onChange={(mode) => set({ mode })}
           options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
-        <span className="muted" style={{ fontSize: 12 }}>{me.user.mode === "system" ? "Follows your device." : `Always ${me.user.mode}, whatever your device says.`}</span>
+        <span className="muted" style={{ fontSize: 12 }}>{mode === "system" ? "Follows your device." : `Always ${mode}, whatever your device says.`}</span>
       </section>
       <p className="muted" style={{ fontSize: 12 }}>Only changes how the app looks for you. Saved to your account and applied on all your devices.</p>
     </main>

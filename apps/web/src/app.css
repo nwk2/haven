@@ -3,7 +3,7 @@ html, body { margin: 0; background: var(--haven-bg); color: var(--haven-ink); fo
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-heading-weight); letter-spacing: var(--haven-shape-heading-tracking); }
 .muted { color: var(--haven-muted); }
-.page { padding: var(--haven-space-gutter); }
+.page { max-width: 480px; margin: 0 auto; padding: var(--haven-space-gutter); }
 .center { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; }
 .mark { border-radius: 22%; }
 .button { min-height: var(--haven-space-min-target); padding: 0 20px; display: inline-flex; align-items: center; border-radius: var(--haven-shape-pill-radius); font-weight: 600; text-decoration: none; }
@@ -44,7 +44,7 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .empty-state { padding: 40px 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .empty-state h2 { margin: 0; font-size: 20px; }
-.fab { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 10; }
+.fab { position: fixed; right: max(16px, calc(50vw - 240px + 16px)); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 10; }
 .thumb { width: 52px; height: 52px; border-radius: var(--haven-shape-radius); background: var(--haven-trip-1); color: var(--haven-ink); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
 .week-switch { display: flex; align-items: center; justify-content: space-between; padding: 4px; }
 .trip-group { border-radius: var(--haven-shape-radius); padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 6px; border: var(--haven-shape-outline-width) solid var(--haven-border); }
@@ -105,9 +105,11 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .check--on { background: var(--haven-accent); border-color: var(--haven-accent); color: var(--haven-on-accent); }
 .done-row { background: transparent; color: var(--haven-muted); }
 .have-it summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--haven-muted); cursor: pointer; }
-.add-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--haven-surface); border-top: 1px solid var(--haven-border); }
+.add-bar { position: fixed; left: 0; right: 0; max-width: 480px; margin: 0 auto; bottom: 0; display: flex; gap: 8px; padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--haven-surface); border-top: 1px solid var(--haven-border); }
 @media (min-width: 1024px) {
   .page { max-width: 960px; margin: 0 auto; }
+  .add-bar { max-width: none; }
+  .fab { right: 16px; }
   .h-tabbar { left: 0; right: auto; top: 0; bottom: 0; width: 200px; grid-auto-flow: row; grid-auto-rows: 56px; align-content: start; border-top: 0; border-right: 1px solid var(--haven-border); padding-top: 96px; }
   .h-tabbar a { flex-direction: row; justify-content: flex-start; padding: 0 20px; font-size: 14px; min-height: 56px; }
   .mod-header, .mod-main { margin-left: 200px; }
