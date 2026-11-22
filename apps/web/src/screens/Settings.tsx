@@ -7,7 +7,7 @@ import { useSession } from "../session";
 import { InviteRow } from "../components/InviteRow";
 
 interface Member { id: string; name: string; photo_url: string | null; role: "owner" | "member"; joined_at: number }
-type DialogKind = null | "rename" | "timezone" | "week" | "units" | "servings" | "remove" | "transfer" | "leave" | "delete" | "signoutAll" | "deleteAccount" | "modules";
+type DialogKind = null | "rename" | "timezone" | "units" | "servings" | "remove" | "transfer" | "leave" | "delete" | "signoutAll" | "deleteAccount" | "modules";
 
 export function Settings() {
   const { me, refresh, signOut } = useSession();
@@ -67,7 +67,6 @@ export function Settings() {
         <InviteRow owner={owner} />
         {row("Rename household", h.name, () => open("rename", { text: h.name }), { ownerOnly: true })}
         {row("Time zone", `${h.timezone} · decides “today” for everyone`, () => open("timezone", { text: h.timezone }), { ownerOnly: true })}
-        {row("Week starts on", { mon: "Monday", sun: "Sunday", sat: "Saturday" }[h.week_start], () => open("week", { text: h.week_start }), { ownerOnly: true })}
         {row("Measurements", h.measurement === "metric" ? "Metric (g, kg, ml, l)" : "US customary (oz, lb, cups)", () => open("units", { text: h.measurement }), { ownerOnly: true })}
       </section>
 
@@ -108,9 +107,6 @@ export function Settings() {
       <Field label="Time zone" list="tz-list" value={text} onChange={(e) => setText(e.target.value)} error={error} />
       <datalist id="tz-list">{(Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone").map((z) => <option key={z} value={z} />)}</datalist>
       <Button loading={busy} onClick={() => patch({ timezone: text })}>Save</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}
-    {dialog === "week" && <Dialog title="Week starts on" body="Changes the first day of the Plan week for everyone. Shopping days don’t move." onClose={close}>
-      <Segmented label="First day" value={text} onChange={setText} options={[{ value: "mon", label: "Monday" }, { value: "sun", label: "Sunday" }, { value: "sat", label: "Saturday" }]} />
-      <Button loading={busy} onClick={() => patch({ week_start: text })}>Save</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}
     {dialog === "units" && <Dialog title="Measurements" body="Recipes keep the units they were written in. Grocery lists convert to this system so amounts merge and read naturally." onClose={close}>
       <Segmented label="System" value={text} onChange={setText} options={[{ value: "metric", label: "Metric" }, { value: "us", label: "US customary" }]} />
       <Button loading={busy} onClick={() => patch({ measurement: text })}>Save</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}

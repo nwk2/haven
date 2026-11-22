@@ -54,7 +54,7 @@ app.get("/api/me", async (c) => {
   const u = c.get("user");
   const prefs = await c.env.DB.prepare("SELECT theme, mode, photo_url, removed_notice FROM users WHERE id = ?").bind(u.id).first();
   const household = u.household_id
-    ? await c.env.DB.prepare("SELECT id, name, timezone, week_start, measurement, default_servings, enabled_modules FROM households WHERE id = ? AND deleted_at IS NULL").bind(u.household_id).first()
+    ? await c.env.DB.prepare("SELECT id, name, timezone, measurement, default_servings, enabled_modules FROM households WHERE id = ? AND deleted_at IS NULL").bind(u.household_id).first()
     : null;
   const unread = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND user_unread = 1").bind(u.id).first<{ n: number }>();
   const deletedHousehold = household ? null
@@ -74,8 +74,8 @@ app.post("/api/households", async (c) => {
   const id = newId();
   const now = Date.now();
   await c.env.DB.batch([
-    c.env.DB.prepare(`INSERT INTO households (id, name, owner_id, timezone, week_start, measurement, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, name.trim().slice(0, 60), u.id, c.req.header("x-haven-tz") ?? "UTC", us ? "sun" : "mon", us ? "us" : "metric", now),
+    c.env.DB.prepare(`INSERT INTO households (id, name, owner_id, timezone, measurement, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).bind(id, name.trim().slice(0, 60), u.id, c.req.header("x-haven-tz") ?? "UTC", us ? "us" : "metric", now),
     c.env.DB.prepare("INSERT INTO members (household_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").bind(id, u.id, now),
     c.env.DB.prepare("UPDATE users SET household_id = ? WHERE id = ?").bind(id, u.id),
   ]);
@@ -158,7 +158,6 @@ app.patch("/api/household", async (c) => {
   const allowed: Record<string, (v: unknown) => boolean> = {
     name: (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 60,
     timezone: (v) => typeof v === "string" && v.length < 64,
-    week_start: (v) => ["mon", "sun", "sat"].includes(v as string),
     measurement: (v) => ["metric", "us"].includes(v as string),
     default_servings: (v) => v === null || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 20),
     enabled_modules: (v) => Array.isArray(v) && v.every((x) => x === "meals"),
@@ -244,7 +243,7 @@ app.get("/api/export", async (c) => {
   const user = await c.env.DB.prepare("SELECT id, email, name, photo_url, theme, mode, created_at FROM users WHERE id = ?").bind(u.id).first();
   const out: Record<string, unknown> = { exported_at: new Date().toISOString(), user };
   if (u.household_id) {
-    out.household = await c.env.DB.prepare("SELECT id, name, timezone, week_start, measurement, default_servings, created_at FROM households WHERE id = ?").bind(u.household_id).first();
+    out.household = await c.env.DB.prepare("SELECT id, name, timezone, measurement, default_servings, created_at FROM households WHERE id = ?").bind(u.household_id).first();
     for (const t of ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"]) {
       out[t] = (await c.env.DB.prepare(`SELECT * FROM ${t} WHERE household_id = ? AND deleted = 0`).bind(u.household_id).all()).results;
     }

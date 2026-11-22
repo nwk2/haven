@@ -6,7 +6,7 @@ export interface ModuleCtx {
   db: HavenDB;
   sync: Sync;
   user: { id: string; name: string; role: "owner" | "member" | null };
-  household: { id: string; name: string; timezone: string; week_start: "mon" | "sun" | "sat"; measurement: "metric" | "us"; default_servings: number | null };
+  household: { id: string; name: string; timezone: string; measurement: "metric" | "us"; default_servings: number | null };
   today: string;
   /** Optional platform features; photos are off until R2 is enabled. */
   features: { photos: boolean };

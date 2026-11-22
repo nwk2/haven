@@ -88,13 +88,6 @@ export function useMutate() {
 
 export const newId = () => crypto.randomUUID();
 
-/** First day of the week containing `date`, per the household's week start. */
-export function weekStart(date: string, start: "mon" | "sun" | "sat") {
-  const dow = new Date(`${date}T00:00:00Z`).getUTCDay(); // 0 = Sunday
-  const first = { sun: 0, mon: 1, sat: 6 }[start];
-  return addDays(date, -((dow - first + 7) % 7));
-}
-
 const intl = (d: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, { ...o, timeZone: "UTC" }).format(new Date(`${d}T00:00:00Z`));
 /** "Mon 23" by default (some locales would print "23 Mon"); other options go straight to Intl. */
 export const fmt = (d: string, o?: Intl.DateTimeFormatOptions) =>

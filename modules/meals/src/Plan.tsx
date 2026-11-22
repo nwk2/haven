@@ -3,7 +3,7 @@ import { Button, Dialog, Icon, Sheet, Stepper } from "@haven/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCtx } from "./ctx";
-import { cap, fmt, ingredientOf, listFor, newId, plural, sectionName, SLOTS, tripOf, useMealsData, useMutate, weekStart, type MealRow, type MealsData, type TripRow } from "./data";
+import { cap, fmt, ingredientOf, listFor, newId, plural, sectionName, SLOTS, tripOf, useMealsData, useMutate, type MealRow, type MealsData, type TripRow } from "./data";
 import { ModuleShell } from "./shell";
 
 type Group = { key: string; trip?: TripRow; color: number; days: string[] };
@@ -17,7 +17,8 @@ export function Plan() {
   const [open, setOpen] = useState<MealRow | null>(null);
   const [confirm, setConfirm] = useState<TripRow | null>(null);
 
-  const start = addDays(weekStart(today, household.week_start), 7 * offset);
+  // Sliding window (decision, Nov 2026): today and the next six days; arrows move a week at a time.
+  const start = addDays(today, 7 * offset);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(start, i)), [start]);
 
   if (!d) return <ModuleShell title="Plan" tab="plan"><Skeleton /></ModuleShell>;
@@ -46,14 +47,14 @@ export function Plan() {
   return (
     <ModuleShell title="Plan" tab="plan" header={
       <div className="week-switch h-card">
-        <button className="h-icon-btn" aria-label="Previous week" onClick={() => setOffset(offset - 1)}>‹</button>
+        <button className="h-icon-btn" aria-label="Previous 7 days" onClick={() => setOffset(offset - 1)}>‹</button>
         <div className="center-text"><strong>{fmt(days[0], { month: "short", day: "numeric" })} – {fmt(days[6], { month: "short", day: "numeric" })}</strong>
-          <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "This week · tap a cart to set a shopping day" : <button className="linklike" onClick={() => setOffset(0)}>Back to this week</button>}</div></div>
-        <button className="h-icon-btn" aria-label="Next week" onClick={() => setOffset(offset + 1)}>›</button>
+          <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "Tap a cart to set a shopping day" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
+        <button className="h-icon-btn" aria-label="Next 7 days" onClick={() => setOffset(offset + 1)}>›</button>
       </div>}>
       {empty && (
         <section className="h-card h-stack" style={{ padding: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Nothing planned this week</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Nothing planned for the next 7 days</h2>
           <p className="muted" style={{ margin: 0 }}>Add meals to days, then tap a day’s cart to shop for them.</p>
           {d.recipes.length ? <Button onClick={() => setAdding(days.find((x) => x >= today) ?? days[0])}>Add a meal</Button> : <Link className="h-btn h-btn--primary" to="/m/meals/recipes/new">Add your first recipe</Link>}
         </section>

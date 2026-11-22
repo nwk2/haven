@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api, SignedOut } from "./api";
 import { applyTheme, BASE, cacheTheme, signOutTheme, type Mode, type ThemeId } from "./theme";
 
-export interface Household { id: string; name: string; timezone: string; week_start: "mon" | "sun" | "sat"; measurement: "metric" | "us"; default_servings: number | null; enabled_modules: string }
+export interface Household { id: string; name: string; timezone: string; measurement: "metric" | "us"; default_servings: number | null; enabled_modules: string }
 export interface Me {
   user: { id: string; name: string; email: string; photo_url: string | null; theme: ThemeId; mode: Mode; role: "owner" | "member" | null; removed_notice: string | null };
   household: Household | null;
