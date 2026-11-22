@@ -96,7 +96,7 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .trip-card__sub { font-size: 13px; color: var(--haven-on-trip-muted); }
 .progress { display: block; height: 8px; border-radius: 4px; background: var(--haven-progress-track); overflow: hidden; margin: 4px 0; }
 .progress span { display: block; height: 100%; background: var(--haven-accent); }
-.shop-head { padding: 8px 8px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; z-index: 5; border-bottom: var(--haven-shape-outline-width) solid var(--haven-border); }
+.shop-head { padding: 16px 8px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; z-index: 5; border-bottom: var(--haven-shape-outline-width) solid var(--haven-border); }
 .item { display: flex; align-items: stretch; gap: 4px; }
 .item__main { flex: 1; min-width: 0; font: inherit; text-align: left; cursor: pointer; }
 .item--done { background: transparent; color: var(--haven-muted); box-shadow: none; min-height: 48px; }

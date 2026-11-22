@@ -25,7 +25,7 @@ export function Console() {
   const firstRun = data.recipes === 0 && data.planned === 0;
 
   return (
-    <main className="page h-stack" style={{ gap: 22, paddingBottom: 32 }}>
+    <main className="page h-stack" style={{ gap: 22, paddingTop: 24, paddingBottom: 32 }}>
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div>
           <div className="muted" style={{ fontSize: 13 }}>{greeting()}, {me!.user.name.split(" ")[0]}</div>

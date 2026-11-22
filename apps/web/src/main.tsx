@@ -72,7 +72,7 @@ function SignIn() {
 }
 
 function Placeholder({ title }: { title: string }) {
-  return <main className="page"><h1>{title}</h1><p className="muted">Coming next in the build.</p></main>;
+  return <main className="page" style={{ paddingTop: 24 }}><h1>{title}</h1><p className="muted">Coming next in the build.</p></main>;
 }
 
 /** Household scheduled for deletion (canvas › Access states). */

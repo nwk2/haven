@@ -41,7 +41,7 @@ export function Shopping() {
   }, [list]);
 
   if (!d) return null;
-  if (!trip || !list) return <main className="page"><p>This grocery run no longer exists. <Link to="/m/meals/lists">Back to lists</Link></p></main>;
+  if (!trip || !list) return <main className="page" style={{ paddingTop: 24 }}><p>This grocery run no longer exists. <Link to="/m/meals/lists">Back to lists</Link></p></main>;
   if (trip.status === "finished") return <FinishedTrip trip={trip} />;
 
   const sectionOf = (r: ListRow) => ingredientOf(d, r.line.ingredientId)?.section ?? "other";
