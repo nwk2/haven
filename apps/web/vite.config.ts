@@ -22,7 +22,10 @@ export default defineConfig({
           { src: "/haven-glyph-monochrome.svg", sizes: "any", type: "image/svg+xml", purpose: "monochrome" },
         ],
       },
-      workbox: { navigateFallbackDenylist: [/^\/api\//, /^\/auth\//], globPatterns: ["**/*.{js,css,html,woff2,png,svg,ico}"] },
+      // The Google OAuth callback lands on "/" with ?code= — it must bypass the
+      // service worker: Safari refuses service-worker-served responses that went
+      // through the Worker's 302 redirect to /login/callback.
+      workbox: { navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /[?&]code=/], globPatterns: ["**/*.{js,css,html,woff2,png,svg,ico}"] },
     }),
   ],
   define: { __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.1.0") },
