@@ -82,7 +82,8 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-skeleton { background: var(--haven-disabled-bg); border-radius: 6px; }
 
 @media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }
-.h-pill--warn .h-pill__dot { background: var(--haven-danger); }
+.h-pill--warn { background: var(--haven-ann-warn-bg); color: var(--haven-ann-warn); max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
+.h-pill--warn .h-pill__dot { background: var(--haven-ann-warn); flex-shrink: 0; }
 
 .h-ann { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 8px 12px 14px; border-radius: 14px; background: var(--t-bg); border-left: 4px solid var(--t); color: var(--haven-ink); }
 /* Same meaning in every theme: Info blue, Heads-up amber, Fixed green (tokens ann*; theme run colours differ per theme). */
@@ -102,4 +103,6 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 
 /* Toast with an action (Undo): one row; the action uses the toast's own colour so it reads in every theme. */
 .h-toast--row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; }
+/* No tab bar on this screen (Tasks, Console): sit just above the bottom edge instead of clearing the Meals tab bar. */
+.h-toast--notab { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 .h-toast__action { flex-shrink: 0; min-height: 44px; padding: 0 10px; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

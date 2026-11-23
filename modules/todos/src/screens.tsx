@@ -26,7 +26,7 @@ export function Header({ title, back, right }: { title: string; back?: string; r
 export interface Undo { text: string; undo?: () => void }
 export function Toast({ t, onDone }: { t: Undo; onDone: () => void }) {
   useEffect(() => { const x = setTimeout(onDone, 5000); return () => clearTimeout(x); }, [t, onDone]);
-  return <div className={`h-toast${t.undo ? " h-toast--row" : ""}`} role="status"><span>{t.text}</span>{t.undo && <button type="button" className="h-toast__action" onClick={() => { t.undo!(); onDone(); }}>Undo</button>}</div>;
+  return <div className={`h-toast h-toast--notab${t.undo ? " h-toast--row" : ""}`} role="status"><span>{t.text}</span>{t.undo && <button type="button" className="h-toast__action" onClick={() => { t.undo!(); onDone(); }}>Undo</button>}</div>;
 }
 
 /** Ticking: checklists toggle in place; repeating items move to their next date; one-time items go to Done. */
@@ -46,7 +46,7 @@ export function useTick(setUndo: (u: Undo) => void) {
     }
     void m.item(i.id, { done_at: Date.now(), done_by: user.id });
     void m.activity(`${firstName(user.name)} ticked ${i.title}`);
-    setUndo({ text: "Done · moved to Done", undo: () => void m.item(i.id, { done_at: null, done_by: null }) });
+    setUndo({ text: "Moved to Done", undo: () => void m.item(i.id, { done_at: null, done_by: null }) });
   };
 }
 
@@ -204,7 +204,7 @@ export function ListPage() {
       {done.length > 0 && (
         <div>
           <div className="td-donehead">
-            <button type="button" className="linklike" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} Done · {done.length}</button>
+            <button type="button" className="td-donehead__toggle" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} Done · {done.length}</button>
             {showDone && <button type="button" className="linklike" onClick={() => { for (const i of done) void m.item(i.id, { deleted: 1 }); setUndo({ text: "Cleared", undo: () => done.forEach((i) => void m.item(i.id, { deleted: 0 })) }); }}>Clear done</button>}
           </div>
           {showDone && <><div className="h-card td-card">{done.map((i) => <ItemRow key={i.id} i={i} list={l} onTick={() => tick(i, l)} onOpen={() => setOpen(i)} />)}</div><p className="muted td-note">Done items disappear 7 days after they’re ticked.</p></>}

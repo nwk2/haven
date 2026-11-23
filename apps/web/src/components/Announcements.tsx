@@ -47,7 +47,7 @@ export function Announcements() {
     <div className="h-ann-stack">
       {shown.map((a) => <Announcement key={a.id} a={a} onDismiss={() => dismiss(a.id)} />)}
       {live.length > 2 && <button type="button" className="h-ann-more" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Show fewer" : `+${live.length - 2} more announcement${live.length - 2 === 1 ? "" : "s"}`}</button>}
-      {undo && <div className="h-toast h-toast--row" role="status"><span>Announcement dismissed</span><button type="button" className="h-toast__action" onClick={() => restore(undo)}>Undo</button></div>}
+      {undo && <div className="h-toast h-toast--row h-toast--notab" role="status"><span>Announcement dismissed</span><button type="button" className="h-toast__action" onClick={() => restore(undo)}>Undo</button></div>}
     </div>
   );
 }

@@ -218,6 +218,7 @@ button.run-status--btn { align-self: flex-start; min-height: 32px; padding: 0 2p
 .td-badge { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 10px; background: var(--haven-disabled-bg); color: var(--haven-ink); white-space: nowrap; }
 .td-badge--late { color: var(--haven-danger); }
 .td-donehead { display: flex; justify-content: space-between; align-items: center; margin: 8px 2px; }
+.td-donehead__toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 2px; border: 0; background: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700; color: var(--haven-muted); text-decoration: none; }
 .td-note { font-size: 12px; margin: 6px 2px 0; }
 .td-add { display: flex; gap: 8px; align-items: stretch; }
 .td-add .h-input { flex: 1; min-width: 0; }
