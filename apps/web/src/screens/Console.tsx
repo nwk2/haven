@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "react-router-dom";
 import { fmtDay, todayIn } from "../date";
 import { useSession } from "../session";
+import { Announcements } from "../components/Announcements";
 
 export function Console() {
   const { me, db } = useSession();
@@ -38,7 +39,7 @@ export function Console() {
         </Link>
       </header>
 
-      {me!.announcement && <p className="note note--info" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><span aria-hidden="true" style={{ flexShrink: 0, lineHeight: 0 }}>{Icon.megaphone}</span><span>{me!.announcement.text}</span></p>}
+      <Announcements />
       {me!.unreadReplies > 0 && (
         <Link to="/help" className="note note--info" role="status"><strong>The Haven team replied</strong> to your message.</Link>
       )}
@@ -62,7 +63,7 @@ export function Console() {
           {Icon.chevron}
         </Link>}
         {!me!.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}
-        {me!.flags.show_planned_modules && <div className="planned">{["Chores", "Bills", "Calendar"].map((n) => <div key={n} className="planned__tile" aria-disabled="true"><strong>{n}</strong><span>Planned</span></div>)}</div>}
+        {me!.flags.show_planned_modules && <div className="planned">{["To-dos", "Bills", "Calendar"].map((n) => <div key={n} className="planned__tile" aria-disabled="true"><strong>{n}</strong><span>Planned</span></div>)}</div>}
       </section>
 
       {data.activity.length > 0 && (

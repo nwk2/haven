@@ -4,7 +4,6 @@ import "./admin.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { api } from "./api";
 import { Feedback } from "./Feedback";
 import { Health } from "./Health";
 import { Denied, SignIn } from "./SignIn";
@@ -13,13 +12,19 @@ import { Users } from "./Users";
 import { Skeleton, TabIcon } from "./bits";
 
 function Shell() {
-  const [ok, setOk] = useState<boolean | null>(null);
+  // "ok", "passkey" (Google done, passkey step not finished) or "out".
+  const [state, setState] = useState<"loading" | "ok" | "passkey" | "out">("loading");
   const [unread, setUnread] = useState(0);
-  useEffect(() => {
-    api<{ counts: Record<string, number> }>("/feedback?status=new").then((r) => { setOk(true); setUnread(r.counts.new ?? 0); }).catch(() => setOk(false));
-  }, []);
-  if (ok === null) return <div className="admin"><main className="admin-main"><Skeleton /></main></div>;
-  if (!ok) return <Navigate to="/sign-in" replace />;
+  const check = async () => {
+    const res = await fetch("/api/feedback?status=new", { credentials: "same-origin" }).catch(() => null);
+    if (res?.ok) { setUnread(((await res.json()) as { counts: Record<string, number> }).counts.new ?? 0); setState("ok"); return; }
+    const body = res ? await res.json().catch(() => ({})) : {};
+    setState(res?.status === 401 && (body as { error?: string }).error === "passkey_required" ? "passkey" : "out");
+  };
+  useEffect(() => { void check(); }, []);
+  if (state === "loading") return <div className="admin"><main className="admin-main"><Skeleton /></main></div>;
+  if (state === "out") return <Navigate to="/sign-in" replace />;
+  if (state === "passkey") return <Navigate to="/sign-in?step=passkey" replace />;
   const tabs: [string, string, keyof typeof TabIcon][] = [["/feedback", "Feedback", "feedback"], ["/users", "Users", "users"], ["/health", "Health", "health"], ["/switches", "Switches", "switches"], ["/account", "Account", "account"]];
   return (
     <div className="admin">

@@ -83,3 +83,19 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 
 @media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }
 .h-pill--warn .h-pill__dot { background: var(--haven-danger); }
+
+/* Announcement: from the Haven team (decision Nov 2026). Colours reuse the run inks (≥4.85:1 on every surface). */
+.h-ann { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 8px 12px 14px; border-radius: 14px; background: var(--t-bg); border-left: 4px solid var(--t); color: var(--haven-ink); }
+.h-ann--info { --t: var(--haven-trip-ink-2); --t-bg: var(--haven-trip-2); }
+.h-ann--warn { --t: var(--haven-trip-ink-1); --t-bg: var(--haven-trip-1); }
+.h-ann--ok { --t: var(--haven-trip-ink-3); --t-bg: var(--haven-trip-3); }
+.h-ann__icon { color: var(--t); padding-top: 1px; display: flex; }
+.h-ann__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.h-ann__from { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--t); }
+.h-ann__title { font-size: 15px; font-weight: 700; }
+.h-ann__text { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.h-ann__meta { font-size: 12px; color: var(--haven-muted); margin-top: 4px; }
+.h-ann__x { width: 40px; height: 40px; margin: -8px -2px 0 0; border: 0; border-radius: 20px; background: none; color: var(--haven-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.h-ann__x:hover { background: rgba(127, 127, 127, 0.15); }
+.h-ann-stack { display: flex; flex-direction: column; gap: 10px; }
+.h-ann-more { align-self: flex-start; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }

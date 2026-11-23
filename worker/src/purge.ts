@@ -16,6 +16,9 @@ export async function purge(env: { DB: PurgeDB }, now = Date.now()) {
     env.DB.prepare("DELETE FROM activity WHERE at < ?").bind(now - 90 * day),
     env.DB.prepare("DELETE FROM feedback WHERE updated_at < ?").bind(now - 365 * day),
     env.DB.prepare("DELETE FROM audit_log WHERE at < ?").bind(now - 365 * day),
+    // Announcements that ended more than 90 days ago, with their dismissals (admin lists the last 90 days).
+    env.DB.prepare("DELETE FROM announcement_dismissals WHERE announcement_id IN (SELECT id FROM announcements WHERE ends_at < ?)").bind(now - 90 * day),
+    env.DB.prepare("DELETE FROM announcements WHERE ends_at < ?").bind(now - 90 * day),
     env.DB.prepare("UPDATE households SET invite_code = NULL, invite_expires_at = NULL WHERE invite_expires_at < ?").bind(now),
     // Tombstones (deleted rows) live 30 days so offline devices learn about deletions; then they go.
     // First raise each household's purge_floor to the highest version being purged, so a device

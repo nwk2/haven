@@ -9,8 +9,11 @@ import type { Env } from "./env";
  * time with ADMIN_MODE = "1". Google sign-in + passkey; never reads household content.
  */
 const COOKIE = "__Host-haven_admin";
+// Sessions (decision, Nov 2026): signed in on a device for 90 days, extended on use (at most one write an
+// hour, and the cookie is renewed with it). Sensitive actions still need the passkey within 15 minutes.
 const DAYS_90 = 90 * 86_400_000;
 const STEP_UP = 15 * 60_000;
+const cookieFor = (token: string, maxAgeMs: number) => `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.round(maxAgeMs / 1000)}`;
 const LIMITS = { daily: { worker_requests: 100_000, do_requests: 100_000, d1_rows_written: 100_000, d1_rows_read: 5_000_000 } };
 
 interface AdminSession { token_hash: string; passkey_at: number; challenge: string | null; expires_at: number }
@@ -18,15 +21,10 @@ type A = { Bindings: Env; Variables: { s: AdminSession } };
 export const admin = new Hono<A>();
 
 const tokenOf = (cookie: string | undefined) => cookie?.match(new RegExp(`${COOKIE}=([^;]+)`))?.[1];
-/** Returns the admin session, renewing its 90-day window (mirrors the main app's readSession). */
+/** Returns the admin session if it's valid; the /api middleware renews it (90 days, sliding). */
 async function session(env: Env, cookie: string | undefined): Promise<AdminSession | null> {
   const t = tokenOf(cookie); if (!t) return null;
-  const hash = await sha256(t); const now = Date.now();
-  const row = await env.DB.prepare("SELECT token_hash, passkey_at, challenge, expires_at FROM admin_sessions WHERE token_hash = ? AND expires_at > ?").bind(hash, now).first<AdminSession>();
-  if (!row) return null;
-  await env.DB.prepare("UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?").bind(now + DAYS_90, hash).run();
-  row.expires_at = now + DAYS_90;
-  return row;
+  return env.DB.prepare("SELECT token_hash, passkey_at, challenge, expires_at FROM admin_sessions WHERE token_hash = ? AND expires_at > ?").bind(await sha256(t), Date.now()).first<AdminSession>();
 }
 async function audit(env: Env, action: string, targetType: string, targetId: string | null, detail?: unknown) {
   await env.DB.prepare("INSERT INTO audit_log (id, at, action, target_type, target_id, detail) VALUES (?, ?, ?, ?, ?, ?)").bind(newId(), Date.now(), action, targetType, targetId, detail ? JSON.stringify(detail) : null).run();
@@ -58,7 +56,7 @@ admin.get("/auth/google/callback", async (c) => {
   }
   const token = randomToken(); const now = Date.now();
   await c.env.DB.prepare("INSERT INTO admin_sessions (token_hash, created_at, expires_at, passkey_at) VALUES (?, ?, ?, 0)").bind(await sha256(token), now, now + DAYS_90).run();
-  c.header("Set-Cookie", `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${DAYS_90 / 1000}`, { append: true });
+  c.header("Set-Cookie", cookieFor(token, DAYS_90), { append: true });
   return c.redirect("/sign-in?step=passkey");
 });
 
@@ -69,6 +67,13 @@ admin.use("/api/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.header("x-haven") !== "1") return c.json({ error: "forbidden" }, 403);
   c.set("s", s);
   if (!c.req.path.startsWith("/api/passkey") && !s.passkey_at) return c.json({ error: "passkey_required" }, 401);
+  // Sliding 90 days: extend at most once an hour (one write), and renew the cookie with it.
+  if (s.expires_at - Date.now() < DAYS_90 - 3_600_000) {
+    const token = tokenOf(c.req.header("cookie"))!;
+    await c.env.DB.prepare("UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?").bind(Date.now() + DAYS_90, s.token_hash).run();
+    s.expires_at = Date.now() + DAYS_90;
+    c.header("Set-Cookie", cookieFor(token, DAYS_90), { append: true });
+  }
   await next();
 });
 const fresh = (s: AdminSession) => Date.now() - s.passkey_at < STEP_UP;
@@ -130,7 +135,7 @@ admin.post("/api/passkey/verify", async (c) => {
 admin.get("/api/me", (c) => c.json({ email: c.env.ADMIN_EMAIL, expiresAt: c.get("s").expires_at, passkeyFresh: fresh(c.get("s")) }));
 admin.post("/api/signout", async (c) => {
   await c.env.DB.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").bind(c.get("s").token_hash).run();
-  c.header("Set-Cookie", `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+  c.header("Set-Cookie", cookieFor("", 0));
   return c.json({ ok: true });
 });
 
@@ -283,7 +288,8 @@ admin.get("/api/health", async (c) => {
 // ── Switches, announcements, audit ──
 admin.get("/api/flags", async (c) => c.json({
   flags: (await c.env.DB.prepare("SELECT key, value FROM flags").all<{ key: string; value: string }>()).results.map((f) => ({ key: f.key, value: JSON.parse(f.value) })),
-  announcements: (await c.env.DB.prepare("SELECT * FROM announcements WHERE ends_at > ? ORDER BY starts_at").bind(Date.now()).all()).results,
+  // Live, scheduled and ended in the last 90 days (older ones are purged nightly).
+  announcements: (await c.env.DB.prepare("SELECT a.id, a.kind, a.title, a.text, a.dismissible, a.starts_at, a.ends_at, (SELECT COUNT(*) FROM announcement_dismissals d WHERE d.announcement_id = a.id) AS dismissed FROM announcements a ORDER BY a.starts_at DESC").all()).results,
 }));
 admin.put("/api/flags/:key", async (c) => {
   const key = c.req.param("key");
@@ -294,17 +300,45 @@ admin.put("/api/flags/:key", async (c) => {
   await audit(c.env, value ? "Switched on" : "Switched off", "flag", key);
   return c.json({ ok: true });
 });
+interface AnnouncementInput { kind: "info" | "warn" | "ok"; title?: string | null; text: string; dismissible: boolean; starts_at: number; ends_at: number }
+const valid = (b: AnnouncementInput) => ["info", "warn", "ok"].includes(b.kind) && !!b.text?.trim() && b.ends_at > b.starts_at;
+const row = (b: AnnouncementInput) => [b.kind, b.title?.trim().slice(0, 60) || null, b.text.trim().slice(0, 280), b.dismissible ? 1 : 0, b.starts_at, b.ends_at];
+
+/** Tell every open Haven app to fetch announcements again (one signal per household; no content). */
+async function announceChanged(env: Env) {
+  const homes = (await env.DB.prepare("SELECT id FROM households WHERE deleted_at IS NULL").all<{ id: string }>()).results;
+  await Promise.allSettled(homes.map((h) => env.HOUSEHOLD.get(env.HOUSEHOLD.idFromName(h.id)).fetch("https://household/signal", { method: "POST", headers: { "x-haven-signal": "refresh" } })));
+}
+
 admin.post("/api/announcements", async (c) => {
-  const b = await c.req.json<{ text: string; starts_at: number; ends_at: number }>();
-  if (!b.text?.trim() || !(b.ends_at > b.starts_at)) return c.json({ error: "bad_request" }, 400);
+  const b = await c.req.json<AnnouncementInput>();
+  if (!valid(b)) return c.json({ error: "bad_request" }, 400);
   const id = newId();
-  await c.env.DB.prepare("INSERT INTO announcements (id, text, starts_at, ends_at) VALUES (?, ?, ?, ?)").bind(id, b.text.trim().slice(0, 280), b.starts_at, b.ends_at).run();
-  await audit(c.env, "Scheduled announcement", "announcement", id, { text: b.text });
+  await c.env.DB.prepare("INSERT INTO announcements (kind, title, text, dismissible, starts_at, ends_at, id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(...row(b), id, Date.now()).run();
+  await audit(c.env, "Scheduled announcement", "announcement", id, { kind: b.kind, title: b.title, text: b.text });
+  c.executionCtx.waitUntil(announceChanged(c.env));
   return c.json({ id });
 });
+admin.put("/api/announcements/:id", async (c) => {
+  const b = await c.req.json<AnnouncementInput & { show_again?: boolean }>();
+  if (!valid(b)) return c.json({ error: "bad_request" }, 400);
+  const id = c.req.param("id");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE announcements SET kind = ?, title = ?, text = ?, dismissible = ?, starts_at = ?, ends_at = ? WHERE id = ?").bind(...row(b), id),
+    // "Show it again to people who dismissed it" (decision, Nov 2026): for changes that matter.
+    ...(b.show_again ? [c.env.DB.prepare("DELETE FROM announcement_dismissals WHERE announcement_id = ?").bind(id)] : []),
+  ]);
+  await audit(c.env, b.show_again ? "Edited announcement and showed it again" : "Edited announcement", "announcement", id, { kind: b.kind, title: b.title, text: b.text });
+  c.executionCtx.waitUntil(announceChanged(c.env));
+  return c.json({ ok: true });
+});
 admin.delete("/api/announcements/:id", async (c) => {
-  await c.env.DB.prepare("DELETE FROM announcements WHERE id = ?").bind(c.req.param("id")).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM announcement_dismissals WHERE announcement_id = ?").bind(c.req.param("id")),
+    c.env.DB.prepare("DELETE FROM announcements WHERE id = ?").bind(c.req.param("id")),
+  ]);
   await audit(c.env, "Removed announcement", "announcement", c.req.param("id"));
+  c.executionCtx.waitUntil(announceChanged(c.env));
   return c.json({ ok: true });
 });
 admin.get("/api/audit", async (c) => c.json({ items: (await c.env.DB.prepare("SELECT at, action, target_type, target_id FROM audit_log ORDER BY at DESC LIMIT 200").all()).results }));

@@ -1,3 +1,4 @@
+import type { AnnouncementData } from "@haven/ui";
 import { HavenDB, Sync, type SyncStatus } from "@haven/sync";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, SignedOut } from "./api";
@@ -11,7 +12,7 @@ export interface Me {
   unreadReplies: number;
   flags: Record<string, boolean>;
   features: { photos: boolean };
-  announcement: { id: string; text: string } | null;
+  announcements: AnnouncementData[];
   protocol: number;
 }
 
@@ -30,6 +31,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     catch (e) { if (e instanceof SignedOut) setMe(null); /* offline: keep what we have */ }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // Coming back to the app re-checks (announcements, replies, roles), at most once a minute.
+  useEffect(() => {
+    let last = Date.now();
+    const onShow = () => { if (document.visibilityState === "visible" && Date.now() - last > 60_000) { last = Date.now(); void refresh(); } };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, [refresh]);
 
   // Theme: base when signed out; member's choice once known (PRD › Base theme).
   useEffect(() => {

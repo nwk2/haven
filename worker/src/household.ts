@@ -48,12 +48,14 @@ export class Household implements DurableObject {
   }
 
   async fetch(req: Request): Promise<Response> {
-    // Admin signals: "reply waiting" or "close" for one user's open connections. No household content.
+    // Admin signals: "reply waiting" or "close" for one user's open connections, or "refresh" for all of
+    // them (announcements changed). No household content; the app just asks /api/me again.
     const signal = req.headers.get("x-haven-signal");
     if (signal) {
       const to = req.headers.get("x-haven-to");
       for (const ws of this.state.getWebSockets()) {
-        if ((ws.deserializeAttachment() as Attachment).userId !== to) continue;
+        // "refresh" (announcements changed) goes to everyone; the others to one person.
+        if (signal !== "refresh" && (ws.deserializeAttachment() as Attachment).userId !== to) continue;
         if (signal === "close") ws.close(4001, "signed out"); else ws.send(JSON.stringify({ type: "reply" }));
       }
       return new Response(null, { status: 204 });

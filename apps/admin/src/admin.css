@@ -88,3 +88,21 @@ input[type="datetime-local"].h-input::-webkit-date-and-time-value { text-align: 
 .quiet-danger { color: var(--haven-danger) !important; border-color: var(--haven-border) !important; }
 .setup code, code { white-space: nowrap; }
 .steps-ol { margin: 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+/* Announcements list and form */
+.ann-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 6px; border: 0; border-bottom: 1px solid var(--haven-border); background: none; color: var(--haven-ink); font: inherit; text-align: left; cursor: pointer; border-radius: 8px; }
+.ann-row:last-of-type { border-bottom: 0; }
+.ann-row[aria-current="true"] { background: var(--haven-disabled-bg); }
+.ann-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 14px; }
+.ann-row__main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ann-row__main small { color: var(--haven-muted); font-size: 12px; }
+.ann-dot { width: 10px; height: 10px; border-radius: 5px; flex-shrink: 0; }
+.ann-dot--info { background: var(--haven-trip-ink-2); } .ann-dot--warn { background: var(--haven-trip-ink-1); } .ann-dot--ok { background: var(--haven-trip-ink-3); }
+.ann-status { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; background: var(--haven-disabled-bg); color: var(--haven-muted); white-space: nowrap; }
+.ann-status--live { color: var(--haven-accent); }
+.kind-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin-top: 6px; border-radius: 12px; border: 1px solid var(--haven-border); }
+.kind-seg button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--haven-muted); font: inherit; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.kind-seg button svg { width: 16px; height: 16px; }
+.kind-seg--info svg { color: var(--haven-trip-ink-2); } .kind-seg--warn svg { color: var(--haven-trip-ink-1); } .kind-seg--ok svg { color: var(--haven-trip-ink-3); }
+.kind-seg button[aria-checked="true"] { background: var(--haven-ink); color: var(--haven-bg); }
+.kind-seg button[aria-checked="true"] svg { color: inherit; }
+.ann-preview { padding: 12px; border-radius: 14px; border: 1px dashed var(--haven-border); background: var(--haven-bg); }

@@ -114,3 +114,32 @@ export const Icon = {
   megaphone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z" /><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" /></svg>,
   settings: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>,
 };
+
+/* ── Announcement (decision, Nov 2026): from the Haven team; typed, optionally dismissible ── */
+export type AnnouncementKind = "info" | "warn" | "ok";
+export interface AnnouncementData { id: string; kind: AnnouncementKind; title?: string | null; text: string; dismissible: boolean | number; ends_at: number }
+const KIND_NAME: Record<AnnouncementKind, string> = { info: "Info", warn: "Heads-up", ok: "Fixed" };
+const KIND_ICON: Record<AnnouncementKind, JSX.Element> = {  // Info reuses the app's megaphone
+  info: Icon.megaphone,
+  warn: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4M12 17h.01" /></svg>,
+  ok: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></svg>,
+};
+export const announcementKindName = (k: AnnouncementKind) => KIND_NAME[k];
+export const announcementKindIcon = (k: AnnouncementKind) => KIND_ICON[k];
+
+export function Announcement({ a, onDismiss, preview }: { a: AnnouncementData; onDismiss?: () => void; preview?: boolean }) {
+  const until = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(a.ends_at);
+  return (
+    <section className={`h-ann h-ann--${a.kind}`} role="region" aria-label={`Announcement from the Haven team${a.title ? `: ${a.title}` : ""}`}>
+      <span className="h-ann__icon">{KIND_ICON[a.kind]}</span>
+      <div className="h-ann__body">
+        <span className="h-ann__from">From the Haven team · {KIND_NAME[a.kind]}</span>
+        {a.title && <span className="h-ann__title">{a.title}</span>}
+        <span className="h-ann__text">{a.text || <span style={{ opacity: 0.5 }}>Your message</span>}</span>
+        {!a.dismissible && <span className="h-ann__meta">Shown until {until}</span>}
+      </div>
+      {a.dismissible ? <button type="button" className="h-ann__x" aria-label="Dismiss this announcement" tabIndex={preview ? -1 : undefined} onClick={preview ? undefined : onDismiss}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button> : <span />}
+    </section>
+  );
+}

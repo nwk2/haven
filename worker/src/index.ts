@@ -61,8 +61,30 @@ app.get("/api/me", async (c) => {
     : await c.env.DB.prepare("SELECT id, name, deleted_at FROM households WHERE owner_id = ? AND deleted_at IS NOT NULL").bind(u.id).first();
   const role = household ? (await c.env.DB.prepare("SELECT role FROM members WHERE household_id = ? AND user_id = ?").bind(u.household_id, u.id).first<{ role: string }>())?.role : null;
   const flags = Object.fromEntries((await c.env.DB.prepare("SELECT key, value FROM flags").all<{ key: string; value: string }>()).results.map((f) => [f.key, JSON.parse(f.value)]));
-  const announcement = await c.env.DB.prepare("SELECT id, text FROM announcements WHERE starts_at <= ?1 AND ends_at > ?1 ORDER BY starts_at DESC LIMIT 1").bind(Date.now()).first();
-  return c.json({ features: { photos: !!c.env.PHOTOS }, flags, announcement, user: { ...u, ...prefs, role }, household, deletedHousehold, unreadReplies: unread?.n ?? 0, protocol: Number(c.env.PROTOCOL_VERSION) });
+  // Announcements live now or starting within a day (the console shows each at its start and hides it
+  // at its end without asking again), minus the ones this person dismissed (decision, Nov 2026).
+  const now = Date.now();
+  const announcements = (await c.env.DB.prepare(
+    `SELECT a.id, a.kind, a.title, a.text, a.dismissible, a.starts_at, a.ends_at FROM announcements a
+     WHERE a.ends_at > ?1 AND a.starts_at <= ?2
+       AND NOT EXISTS (SELECT 1 FROM announcement_dismissals d WHERE d.announcement_id = a.id AND d.user_id = ?3)
+     ORDER BY a.starts_at DESC LIMIT 20`,
+  ).bind(now, now + 86_400_000, u.id).all()).results;
+  return c.json({ features: { photos: !!c.env.PHOTOS }, flags, announcements, user: { ...u, ...prefs, role }, household, deletedHousehold, unreadReplies: unread?.n ?? 0, protocol: Number(c.env.PROTOCOL_VERSION) });
+});
+
+// Dismiss an announcement for this person (every device); DELETE undoes it.
+app.post("/api/announcements/:id/dismiss", async (c) => {
+  const u = c.get("user");
+  const a = await c.env.DB.prepare("SELECT dismissible FROM announcements WHERE id = ?").bind(c.req.param("id")).first<{ dismissible: number }>();
+  if (!a) return c.json({ error: "not_found" }, 404);
+  if (!a.dismissible) return c.json({ error: "not_dismissible" }, 400);
+  await c.env.DB.prepare("INSERT OR IGNORE INTO announcement_dismissals (user_id, announcement_id, at) VALUES (?, ?, ?)").bind(u.id, c.req.param("id"), Date.now()).run();
+  return c.json({ ok: true });
+});
+app.delete("/api/announcements/:id/dismiss", async (c) => {
+  await c.env.DB.prepare("DELETE FROM announcement_dismissals WHERE user_id = ? AND announcement_id = ?").bind(c.get("user").id, c.req.param("id")).run();
+  return c.json({ ok: true });
 });
 
 app.post("/api/households", async (c) => {
