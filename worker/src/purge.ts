@@ -6,7 +6,7 @@ export interface PurgeDB { prepare(sql: string): { bind(...v: unknown[]): unknow
  * if any statement fails, nothing is purged, so every statement is covered by
  * worker/test/purge.test.mjs against the real migrations.
  */
-export const TOMBSTONE_TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
+export const TOMBSTONE_TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_list_states", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
 
 export async function purge(env: { DB: PurgeDB }, now = Date.now()) {
   const day = 86_400_000;
@@ -24,7 +24,12 @@ export async function purge(env: { DB: PurgeDB }, now = Date.now()) {
     env.DB.prepare("DELETE FROM todos_sent WHERE at < ?").bind(now - 3 * day),
     env.DB.prepare("DELETE FROM todos_items WHERE done_at IS NOT NULL AND done_at < ? AND repeat IS NULL").bind(now - 37 * day),
     env.DB.prepare("UPDATE households SET invite_code = NULL, invite_expires_at = NULL WHERE invite_expires_at < ?").bind(now),
-    // Tombstones (deleted rows) live 30 days so offline devices learn about deletions; then they go.
+    // One-time admin sign-in codes are single-use and expire in 10 minutes; expired ones go.
+    env.DB.prepare("DELETE FROM admin_signin_codes WHERE expires_at < ?").bind(now),
+    // List states for meals that no longer exist have nothing to attach to any more.
+    // A meal's tombstone is purged below, in the same run, so a state orphaned by it is
+    // picked up the next night, once the meal row itself is gone.
+    env.DB.prepare("DELETE FROM meals_list_states WHERE meal_id IS NOT NULL AND meal_id NOT IN (SELECT id FROM meals_planned)").bind(),
     // First raise each household's purge_floor to the highest version being purged, so a device
     // whose cursor is older than that resyncs from scratch instead of keeping ghost rows.
     ...TOMBSTONE_TABLES.map((t) => env.DB.prepare(

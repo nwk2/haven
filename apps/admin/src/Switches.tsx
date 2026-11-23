@@ -38,6 +38,8 @@ export function Account() {
   const [me, setMe] = useState<{ email: string; expiresAt: number } | null>(null);
   const [theme, setTheme] = useState(() => JSON.parse(localStorage.getItem("haven-admin:theme") ?? '{"theme":"night","mode":"system"}') as { theme: string; mode: string });
   const [msg, setMsg] = useState<string>();
+  const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
   useEffect(() => { api<typeof me>("/me").then(setMe); }, []);
   useEffect(() => { localStorage.setItem("haven-admin:theme", JSON.stringify(theme)); document.documentElement.dataset.theme = theme.theme; document.documentElement.dataset.mode = theme.mode; }, [theme]);
   return (
@@ -48,6 +50,20 @@ export function Account() {
         <Segmented label="Mode" value={theme.mode} onChange={(v) => setTheme({ ...theme, mode: v })} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
         <span className="muted" style={{ fontSize: 12 }}>Saved on this device only. The Admin badge stays whatever you pick.</span></section>
       <InstallCard />
+      <section className="h-card h-stack" style={{ padding: 14 }}>
+        <strong>Sign in on another device</strong>
+        <span className="muted" style={{ fontSize: 12 }}>Each browser keeps its own sign-in, so opening admin somewhere new asks for Google again. A one-time code skips the Google step there — you’ll still confirm with your passkey.</span>
+        {code && <><span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 2 }}>{code.code}</span>
+          <span className="muted" style={{ fontSize: 12 }}>Single use · expires {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(code.expiresAt)} · making a new code retires this one</span>
+          <Button variant="secondary" onClick={async () => { await navigator.clipboard.writeText(code.code.replace("-", "")); setMsg("Code copied."); }}>Copy code</Button></>}
+        <Button variant="secondary" loading={codeBusy} onClick={async () => {
+          setCodeBusy(true);
+          try { setCode(await api<{ code: string; expiresAt: number }>("/signin-codes", { method: "POST" })); setMsg(undefined); }
+          catch { setMsg("Couldn’t make a code. Confirm with your passkey and try again."); }
+          finally { setCodeBusy(false); }
+        }}>{code ? "Make a new code" : "Get a sign-in code"}</Button>
+        {msg && <p role="status" className="note">{msg}</p>}
+      </section>
       <section className="h-card h-stack" style={{ padding: 14 }}>
         <strong>{me?.email}</strong><span className="muted" style={{ fontSize: 12 }}>Admin · Google + passkey · session ends {me ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(me.expiresAt) : ""}</span>
         {msg && <p role="status" className="note">{msg}</p>}

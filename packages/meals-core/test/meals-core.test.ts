@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyStates, assignMeals, buildLines, display, shoppingWindows, type PlannedMeal, type Recipe, type Trip } from "../src";
+import { applySourceStates, applyStates, buildLines, display, type PlannedMeal, type Recipe } from "../src";
 
-const trips: Trip[] = [
-  { id: "mon", date: "2026-11-23", kind: "regular" },
-  { id: "thu", date: "2026-11-26", kind: "regular" },
-];
 const meal = (id: string, date: string, recipeId: string, servings: number, extra: Partial<PlannedMeal> = {}): PlannedMeal =>
   ({ id, date, recipeId, servings, status: "planned", ...extra });
 
@@ -25,28 +21,6 @@ const recipes = new Map<string, Recipe>([
   ] }],
   ["onecan", { id: "onecan", baseServings: 2, ingredients: [{ ingredientId: "beans", qty: 1, unit: "can" }] }],
 ]);
-
-describe("shopping windows (PRD › Key rules)", () => {
-  it("covers each trip up to the day before the next; last covers 14 days", () => {
-    expect(shoppingWindows(trips)).toEqual([
-      { tripId: "mon", from: "2026-11-23", to: "2026-11-25" },
-      { tripId: "thu", from: "2026-11-26", to: "2026-12-09" },
-    ]);
-  });
-  it("puts meals before the first trip on no list, skips skipped meals, ignores top-ups", () => {
-    const meals = [
-      meal("a", "2026-11-22", "salad", 2),
-      meal("b", "2026-11-24", "tacos", 4),
-      meal("c", "2026-11-27", "salad", 2),
-      meal("d", "2026-11-28", "salad", 2, { status: "skipped" }),
-    ];
-    const r = assignMeals([...trips, { id: "top", date: "2026-11-24", kind: "topup" }], meals);
-    expect(r.notOnList.map((m) => m.id)).toEqual(["a"]);
-    expect(r.byTrip.get("mon")!.map((m) => m.id)).toEqual(["b"]);
-    expect(r.byTrip.get("thu")!.map((m) => m.id)).toEqual(["c"]);
-    expect(r.byTrip.has("top")).toBe(false);
-  });
-});
 
 describe("merging and scaling (PRD › Servings and scaling)", () => {
   it("merges feta 150 g + 100 g = 250 g", () => {
@@ -119,5 +93,66 @@ describe("item states (PRD › Recompute and checks)", () => {
     expect(state("salt_taste")).toBe("haveIt");
     expect(state("feta_mass")).toBe("unavailable");
     expect(r.noLongerNeeded.map((s) => s.key)).toEqual(["chicken_mass"]);
+  });
+});
+
+describe("per-meal-ingredient states (one list: state lives on the meal, not the line)", () => {
+  // Feta: tacos meal "b" needs 150 g, salad meal "c" needs 100 g — one combined 250 g line.
+  const lines = buildLines([meal("b", "x", "tacos", 4), meal("c", "x", "salad", 2)], recipes, "metric");
+  const row = (r: ReturnType<typeof applySourceStates>, k: string) => r.rows.find((x) => x.line.key === k)!;
+  it("buying one meal's share leaves the other still to buy (+100 g more)", () => {
+    const r = applySourceStates(lines, [{ mealId: "b", key: "feta_mass", checked: true }], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "needsMore", more: { qty: 100, unit: "g" } });
+    expect(row(r, "feta_mass").line.shown).toEqual({ qty: 250, unit: "g" });
+  });
+  it("buying both shares puts the line in the cart", () => {
+    const r = applySourceStates(lines, [
+      { mealId: "b", key: "feta_mass", checked: true },
+      { mealId: "c", key: "feta_mass", checked: true },
+    ], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "inCart" });
+  });
+  it("a partial boughtQty counts against the line total", () => {
+    const r = applySourceStates(lines, [
+      { mealId: "b", key: "feta_mass", checked: true, boughtQty: 50 },
+      { mealId: "c", key: "feta_mass", checked: true, boughtQty: 100 },
+    ], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "needsMore", more: { qty: 100, unit: "g" } });
+  });
+  it("have-it on one meal's share shrinks the line to the other meal's share", () => {
+    const r = applySourceStates(lines, [{ mealId: "b", key: "feta_mass", checked: false, haveIt: true }], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "todo" });
+    expect(row(r, "feta_mass").line.shown).toEqual({ qty: 100, unit: "g" });
+  });
+  it("have-it on every share hides the line under Have it", () => {
+    const r = applySourceStates(lines, [
+      { mealId: "b", key: "feta_mass", checked: false, haveIt: true },
+      { mealId: "c", key: "feta_mass", checked: false, haveIt: true },
+    ], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "haveIt" });
+  });
+  it("cleared shares hide the line; a cleared share plus a live one shows only the live share", () => {
+    const cleared = applySourceStates(lines, [
+      { mealId: "b", key: "feta_mass", checked: true, cleared: true },
+      { mealId: "c", key: "feta_mass", checked: true, cleared: true },
+    ], "metric");
+    expect(cleared.rows.some((x) => x.line.key === "feta_mass")).toBe(false);
+    const half = applySourceStates(lines, [
+      { mealId: "b", key: "feta_mass", checked: true, cleared: true },
+    ], "metric");
+    expect(row(half, "feta_mass").state).toEqual({ kind: "todo" });
+    expect(row(half, "feta_mass").line.shown).toEqual({ qty: 100, unit: "g" });
+  });
+  it("states for meals not on the list are ignored, and extra keys never become rows", () => {
+    const r = applySourceStates(lines, [
+      { mealId: "zzz", key: "feta_mass", checked: true },
+      { mealId: "b", key: "extra_paper", checked: true },
+    ], "metric");
+    expect(row(r, "feta_mass").state).toEqual({ kind: "todo" });
+    expect(r.noLongerNeeded).toEqual([]);
+  });
+  it("to-taste lines check off with no amount", () => {
+    const r = applySourceStates(lines, [{ mealId: "b", key: "salt_taste", checked: true }], "metric");
+    expect(row(r, "salt_taste").state).toEqual({ kind: "inCart" });
   });
 });

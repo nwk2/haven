@@ -27,12 +27,6 @@ export interface PlannedMeal {
   includeOptional?: string[];
 }
 
-export interface Trip {
-  id: string;
-  date: LocalDate;
-  kind: "regular" | "topup";
-}
-
 export interface ItemState {
   key: string;
   checked: boolean;

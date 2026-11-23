@@ -60,6 +60,33 @@ admin.get("/auth/google/callback", async (c) => {
   return c.redirect("/sign-in?step=passkey");
 });
 
+// ── One-time sign-in code (decision, Nov 2026) ──
+// The session cookie lives in one browser, so opening admin in another always lands on
+// "Continue with Google". A code from the Account page replaces the Google step only:
+// it creates a Google-verified session (passkey_at = 0) in the new browser, and the
+// passkey step still has to be done there. 8 chars, 10 minutes, single use, SHA-256 at rest.
+const CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";   // no 0/O/1/I: readable over the phone
+const CODE_TTL = 10 * 60_000;
+const newCode = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
+const codeHash = (code: string) => sha256(code.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+const codeDisplay = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
+
+admin.post("/auth/code", async (c) => {
+  const ip = c.req.header("cf-connecting-ip") ?? "local";
+  if (await limited(c.env, `admin-fail:${ip}`, 5)) return c.json({ error: "too_many" }, 429);
+  const { code } = await c.req.json<{ code?: string }>().catch(() => ({} as { code?: string }));
+  const hash = await codeHash(String(code ?? ""));
+  const row = await c.env.DB.prepare("SELECT code_hash FROM admin_signin_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?").bind(hash, Date.now()).first();
+  if (!row) return c.json({ error: "bad_code" }, 400);
+  const used = await c.env.DB.prepare("UPDATE admin_signin_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL").bind(Date.now(), hash).run();
+  if (!used.meta.changes) return c.json({ error: "bad_code" }, 400);   // raced with another redemption
+  const token = randomToken(); const now = Date.now();
+  await c.env.DB.prepare("INSERT INTO admin_sessions (token_hash, created_at, expires_at, passkey_at) VALUES (?, ?, ?, 0)").bind(await sha256(token), now, now + DAYS_90).run();
+  await audit(c.env, "Signed in with a one-time code", "admin", null);
+  c.header("Set-Cookie", cookieFor(token, DAYS_90), { append: true });
+  return c.json({ ok: true });
+});
+
 // Everything under /api needs a Google-verified admin session and the anti-forgery header.
 admin.use("/api/*", async (c, next) => {
   const s = await session(c.env, c.req.header("cookie"));
@@ -133,6 +160,19 @@ admin.post("/api/passkey/verify", async (c) => {
 });
 
 admin.get("/api/me", (c) => c.json({ email: c.env.ADMIN_EMAIL, expiresAt: c.get("s").expires_at, passkeyFresh: fresh(c.get("s")) }));
+
+/** Make a one-time sign-in code (passkey step-up: the code is a way in, so it needs a fresh passkey). */
+admin.post("/api/signin-codes", async (c) => {
+  const r = stepUp(c); if (r) return r;
+  const code = newCode(); const now = Date.now();
+  await c.env.DB.batch([
+    // A new code retires any unused ones: only the code on screen works.
+    c.env.DB.prepare("UPDATE admin_signin_codes SET used_at = ? WHERE used_at IS NULL").bind(now),
+    c.env.DB.prepare("INSERT INTO admin_signin_codes (code_hash, created_at, expires_at) VALUES (?, ?, ?)").bind(await codeHash(code), now, now + CODE_TTL),
+  ]);
+  await audit(c.env, "Created a sign-in code", "admin", null);
+  return c.json({ code: codeDisplay(code), expiresAt: now + CODE_TTL });
+});
 admin.post("/api/signout", async (c) => {
   await c.env.DB.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").bind(c.get("s").token_hash).run();
   c.header("Set-Cookie", cookieFor("", 0));
@@ -211,7 +251,7 @@ admin.get("/api/users/:id", async (c) => {
   if (!u) return c.json({ error: "not_found" }, 404);
   const counts = u.household_id ? await c.env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM members WHERE household_id = ?1) AS members, (SELECT COUNT(*) FROM meals_recipes WHERE household_id = ?1 AND deleted = 0) AS recipes,
-       (SELECT COUNT(*) FROM meals_trips WHERE household_id = ?1 AND deleted = 0) AS trips`).bind(u.household_id).first() : null;
+       (SELECT COUNT(*) FROM meals_planned WHERE household_id = ?1 AND deleted = 0) AS planned`).bind(u.household_id).first() : null;
   const others = u.household_id ? (await c.env.DB.prepare("SELECT u.id, u.name FROM members m JOIN users u ON u.id = m.user_id WHERE m.household_id = ? AND m.user_id != ?").bind(u.household_id, id).all()).results : [];
   const feedback = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ?").bind(id).first<{ n: number }>())?.n ?? 0;
   return c.json({ ...u, counts, others, feedback });
@@ -263,7 +303,7 @@ admin.get("/api/users/:id/export", async (c) => {
   const u = await c.env.DB.prepare("SELECT id, email, name, photo_url, theme, mode, created_at, household_id FROM users WHERE id = ?").bind(c.req.param("id")).first<{ household_id: string | null; email: string }>();
   if (!u) return c.json({ error: "not_found" }, 404);
   const out: Record<string, unknown> = { exported_at: new Date().toISOString(), user: u };
-  if (u.household_id) for (const t of ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"]) out[t] = (await c.env.DB.prepare(`SELECT * FROM ${t} WHERE household_id = ? AND deleted = 0`).bind(u.household_id).all()).results;
+  if (u.household_id) for (const t of ["meals_ingredients", "meals_recipes", "meals_planned", "meals_list_states"]) out[t] = (await c.env.DB.prepare(`SELECT * FROM ${t} WHERE household_id = ? AND deleted = 0`).bind(u.household_id).all()).results;
   await audit(c.env, "Exported data", "user", u.email);
   c.header("Content-Disposition", `attachment; filename="haven-export-${u.email}.json"`);
   return c.json(out);
@@ -276,12 +316,12 @@ admin.get("/api/health", async (c) => {
   const week = Date.now() - 7 * 86_400_000;
   const active = (await c.env.DB.prepare("SELECT COUNT(DISTINCT u.household_id) AS n FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.last_seen_at > ? AND u.household_id IS NOT NULL").bind(week).first<{ n: number }>())?.n ?? 0;
   const households = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM households WHERE deleted_at IS NULL").first<{ n: number }>())?.n ?? 0;
-  const tripsFinished = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM meals_trips WHERE status = 'finished' AND finished_at > ?").bind(week).first<{ n: number }>())?.n ?? 0;
+  const itemsBought = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM meals_list_states WHERE checked = 1 AND checked_at > ?").bind(week).first<{ n: number }>())?.n ?? 0;
   const newFeedback = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE status = 'new'").first<{ n: number }>())?.n ?? 0;
   return c.json({
     connected: !!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID),
     usage: usage.map((x) => ({ ...x, limit: LIMITS.daily[x.metric] })),
-    metrics: { active, households, tripsFinished, newFeedback },
+    metrics: { active, households, itemsBought, newFeedback },
   });
 });
 

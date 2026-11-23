@@ -38,7 +38,7 @@ export function Health() {
       <section className="tiles">
         <div className="h-card tile-stat"><strong>{h.metrics.active}</strong><span>Active households</span><small>last 7 days</small></div>
         <div className="h-card tile-stat"><strong>{h.metrics.households}</strong><span>Households</span><small>in total</small></div>
-        <div className="h-card tile-stat"><strong>{h.metrics.tripsFinished}</strong><span>Runs finished</span><small>last 7 days</small></div>
+        <div className="h-card tile-stat"><strong>{h.metrics.itemsBought}</strong><span>Items bought</span><small>last 7 days</small></div>
         <div className="h-card tile-stat"><strong>{h.metrics.newFeedback}</strong><span>New feedback</span><small>waiting</small></div>
       </section>
     </div>

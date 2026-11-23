@@ -304,7 +304,7 @@ app.get("/api/export", async (c) => {
   const out: Record<string, unknown> = { exported_at: new Date().toISOString(), user };
   if (u.household_id) {
     out.household = await c.env.DB.prepare("SELECT id, name, timezone, measurement, default_servings, created_at FROM households WHERE id = ?").bind(u.household_id).first();
-    for (const t of ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"]) {
+    for (const t of ["meals_ingredients", "meals_recipes", "meals_planned", "meals_list_states"]) {
       out[t] = (await c.env.DB.prepare(`SELECT * FROM ${t} WHERE household_id = ? AND deleted = 0`).bind(u.household_id).all()).results;
     }
   }

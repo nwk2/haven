@@ -41,9 +41,14 @@ db.exec(`
   INSERT INTO todos_items (id, household_id, list_id, title, done_at, version) VALUES ('t-old','keep','l','x',${now - 40 * day},1), ('t-recent','keep','l','x',${now - 10 * day},2), ('t-open','keep','l','x',NULL,3);
   INSERT INTO todos_items (id, household_id, list_id, title, done_at, repeat, version) VALUES ('t-repeat','keep','l','x',${now - 40 * day},'{"kind":"weekly"}',4);
   INSERT INTO todos_sent (household_id, key, at) VALUES ('keep','old',${now - 4 * day}), ('keep','new',${now - day});
-  INSERT INTO meals_trips (id, household_id, date, version, deleted, deleted_at) VALUES ('t-live','keep','2026-12-01',10,0,NULL), ('t-old','keep','2026-10-01',11,1,${now - 31 * day}), ('t-recent','keep','2026-11-01',12,1,${now - day});
-  INSERT INTO meals_items (household_id, trip_id, key, version, deleted, deleted_at) VALUES ('keep','t-live','feta_mass',13,1,${now - 40 * day}), ('keep','t-live','beans_count-can',14,0,NULL);
+  INSERT INTO meals_list_states (id, household_id, meal_id, key, version, deleted, deleted_at) VALUES
+    ('ls-old','keep','p-live','feta_mass',13,1,${now - 31 * day}), ('ls-recent','keep','p-live','beans_count-can',14,1,${now - day}),
+    ('ls-live','keep','p-live','salt_taste',15,0,NULL),
+    ('ls-orphan','keep','p-gone','flour_mass',16,0,NULL),
+    ('ls-extra','keep',NULL,'extra_x',17,0,NULL);
+  INSERT INTO admin_signin_codes (code_hash, created_at, expires_at) VALUES ('c-old',0,${now - 1}), ('c-live',0,${now + 600000});
   INSERT INTO meals_planned (id, household_id, date, slot, recipe_id, servings, version, deleted, deleted_at) VALUES ('p-old','expinv','2026-10-01','dinner','r-live',2,7,1,${now - 35 * day});
+  INSERT INTO meals_planned (id, household_id, date, slot, recipe_id, servings, version, deleted, deleted_at) VALUES ('p-live','keep','2026-12-01','dinner','r-live',2,20,0,NULL);
 `);
 
 await purge({ DB: D1 }, now);
@@ -62,11 +67,11 @@ assert.deepEqual(ids("SELECT id FROM households"), ["expinv", "keep", "restorabl
 assert.equal(db.prepare("SELECT invite_code FROM households WHERE id = 'expinv'").get().invite_code, null);
 assert.equal(db.prepare("SELECT invite_code FROM households WHERE id = 'keep'").get().invite_code, "fresh");
 assert.deepEqual(ids("SELECT id FROM meals_recipes"), ["r-live", "r-recent"]);   // r-in-gone cascaded with its household
-assert.deepEqual(ids("SELECT id FROM meals_trips"), ["t-live", "t-recent"]);
-assert.deepEqual(ids("SELECT key FROM meals_items"), ["beans_count-can"]);
-assert.deepEqual(ids("SELECT id FROM meals_planned"), []);
-// purge_floor = highest purged version per household (keep: recipe r-old v1, trip v11, item v13 → 13; expinv: v7; untouched: 0)
+assert.deepEqual(ids("SELECT id FROM meals_list_states"), ["ls-extra", "ls-live", "ls-recent"]);   // old tombstone purged; orphan (meal gone) removed
+assert.deepEqual(ids("SELECT code_hash FROM admin_signin_codes"), ["c-live"]);
+assert.deepEqual(ids("SELECT id FROM meals_planned"), ["p-live"]);
+// purge_floor = highest purged version per household (keep: recipe r-old v1, list state v13 → 13; expinv: v7; untouched: 0)
 assert.equal(db.prepare("SELECT purge_floor FROM households WHERE id = 'keep'").get().purge_floor, 13);
 assert.equal(db.prepare("SELECT purge_floor FROM households WHERE id = 'expinv'").get().purge_floor, 7);
 assert.equal(db.prepare("SELECT purge_floor FROM households WHERE id = 'restorable'").get().purge_floor, 0);
-console.log("purge: all 15 checks passed");
+console.log("purge: all 19 checks passed");

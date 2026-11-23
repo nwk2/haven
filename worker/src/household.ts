@@ -14,9 +14,8 @@ const WRITABLE: Record<string, string[]> = {
   activity: ["module_id", "member_id", "text", "at", "deleted"],
   meals_ingredients: ["name", "default_unit", "section", "merged_into", "deleted"],
   meals_recipes: ["title", "base_servings", "ingredients", "steps", "tags", "source", "photo_key", "archived_at", "deleted_at", "deleted"],
-  meals_planned: ["date", "slot", "recipe_id", "servings", "status", "run_id", "bought_on_trip_id", "recipe_snapshot", "deleted"],
-  meals_trips: ["date", "kind", "name", "status", "finished_at", "reopen_until", "final_lines", "deleted"],
-  meals_items: ["trip_id", "key", "checked", "checked_by", "checked_at", "bought_qty", "bought_unit", "unavailable", "have_it", "carried_from", "label", "qty", "unit", "section", "deleted"],
+  meals_planned: ["date", "slot", "recipe_id", "servings", "status", "recipe_snapshot", "deleted"],
+  meals_list_states: ["meal_id", "key", "checked", "checked_by", "checked_at", "bought_qty", "have_it", "cleared", "label", "qty", "unit", "section", "deleted"],
   todos_lists: ["name", "emoji", "position", "checklist", "created_by", "deleted"],
   todos_items: ["list_id", "title", "note", "due_date", "due_time", "repeat", "assignee_id", "position", "checked", "done_at", "done_by", "last_done_at", "last_done_by", "created_by", "created_at", "deleted"],
   todos_mutes: ["user_id", "list_id", "deleted"],
@@ -158,17 +157,16 @@ export class Household implements DurableObject {
       const nextV = v + 1;
       const names = fields.map(([k]) => k);
       const vals = fields.map(([, x]) => x);
-      const isItem = m.table === "meals_items";
-      // Key: (trip_id, key) for items, id otherwise. household_id always comes from the session.
-      const keyWhere = isItem ? "trip_id = ? AND key = ?" : "id = ?";
-      const keyVals = isItem ? [String(m.fields.trip_id ?? ""), String(m.fields.key ?? "")] : [m.rowId];
+      // Key: the row id; household_id always comes from the session.
+      const keyWhere = "id = ?";
+      const keyVals = [m.rowId];
       // Update the existing row (only this household's), or insert it if it doesn't exist yet.
       // A plain INSERT … ON CONFLICT can't be used: SQLite checks NOT NULL on the insert before
-      // seeing the conflict, so partial updates (finish a trip, delete a meal) would be rejected.
+      // seeing the conflict, so partial updates (delete a meal, check an item) would be rejected.
       const update = this.env.DB.prepare(`UPDATE ${m.table} SET ${names.map((n) => `${n} = ?`).join(", ")}, version = ? WHERE ${keyWhere} AND household_id = ?`)
         .bind(...vals, nextV, ...keyVals, who.householdId);
-      const insertCols = isItem ? ["household_id", ...names, "version"] : ["id", "household_id", ...names, "version"];
-      const insertVals = isItem ? [who.householdId, ...vals, nextV] : [m.rowId, who.householdId, ...vals, nextV];
+      const insertCols = ["id", "household_id", ...names, "version"];
+      const insertVals = [m.rowId, who.householdId, ...vals, nextV];
       const insert = this.env.DB.prepare(`INSERT INTO ${m.table} (${insertCols.join(", ")}) SELECT ${insertCols.map(() => "?").join(", ")} WHERE NOT EXISTS (SELECT 1 FROM ${m.table} WHERE ${keyWhere})`)
         .bind(...insertVals, ...keyVals);
       try {
@@ -188,9 +186,7 @@ export class Household implements DurableObject {
       if (m.table === "todos_items" && typeof m.fields.assignee_id === "string" && m.fields.assignee_id !== who.userId)
         this.state.storage.sql.exec("INSERT INTO given (item_id, assignee, actor, at) VALUES (?, ?, ?, ?)", m.rowId, m.fields.assignee_id, who.userId, Date.now());
       // Success-metric events (Technical spec › Measuring success): no names or emails, household id hashed.
-      const ev = m.table === "meals_trips" && m.fields.status === "finished" ? "trip_finished"
-        : m.table === "meals_trips" && m.fields.kind === "regular" && m.fields.date ? "list_generated"
-        : m.table === "meals_items" && String(m.fields.key ?? "").startsWith("extra_") && m.fields.label ? "list_item_edited" : null;
+      const ev = m.table === "meals_list_states" && String(m.fields.key ?? "").startsWith("extra_") && m.fields.label ? "list_item_edited" : null;
       if (ev) this.env.EVENTS?.writeDataPoint({ blobs: [ev], indexes: [await sha256(who.householdId)] });
     }
     for (const id of rejected) this.state.storage.sql.exec("INSERT OR IGNORE INTO seen (id, at) VALUES (?, ?)", id, Date.now());

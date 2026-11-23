@@ -8,9 +8,9 @@ import { useSession } from "../session";
 interface Item { id: string; kind: string; first: string; label: string; user_unread: number; updated_at: number }
 const KINDS = [["broken", "Something’s broken", "Tell us what you did and what you expected"], ["idea", "Idea", "What would make Haven better for your household?"], ["question", "Question", "Ask anything"]] as const;
 const FAQ = [
-  ["How do grocery runs work?", "A grocery run is one trip to the shop. In Lists, tap ‘+ Plan a grocery run’, pick the day you’ll shop and tick the meals to buy for. Its list builds itself from those meals, plus any extra items you add."],
-  ["Why does a meal say “No grocery run yet”?", "It isn’t on any grocery run, so its ingredients aren’t on a list. Tap ‘No grocery run yet ›’ on the meal to add it to a run, or plan a new run from Lists."],
-  ["Does Haven work without signal?", "Yes. Lists, recipes and the plan are kept on your phone; changes sync when you’re back online."],
+  ["How does the shopping list work?", "It builds itself from the meals you’ve planned: every upcoming planned meal adds its ingredients, grouped by store section, with the meals each item is for. Tick things off as you buy them, over as many trips to the shop as it takes. There’s nothing to plan on the list itself."],
+  ["What if I already have something at home?", "Open the item and tap ‘Have it’. It’s skipped for those meals, and hidden until you undo it."],
+  ["Does Haven work without signal?", "Yes. Shopping, recipes and the plan are kept on your phone; changes sync when you’re back online."],
   ["How do I install Haven?", "Settings › Install Haven on this device shows the steps for your phone or computer."],
 ];
 const day = (t: number) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(t);

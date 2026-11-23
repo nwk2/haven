@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useCtx } from "./ctx";
 
-export function ModuleShell({ title, tab, header, children }: { title: string; tab: "plan" | "recipes" | "lists"; header?: ReactNode; children: ReactNode }) {
+export function ModuleShell({ title, tab, header, children }: { title: string; tab: "plan" | "recipes" | "shopping"; header?: ReactNode; children: ReactNode }) {
   const { household } = useCtx();
   return (<>
     <header className="mod-header">
@@ -17,7 +17,7 @@ export function ModuleShell({ title, tab, header, children }: { title: string; t
     <nav className="h-tabbar" aria-label="Meals and Groceries">
       <Link to="/m/meals/plan" aria-current={tab === "plan" ? "page" : undefined}>{Icon.calendar}Plan</Link>
       <Link to="/m/meals/recipes" aria-current={tab === "recipes" ? "page" : undefined}>{Icon.book}Recipes</Link>
-      <Link to="/m/meals/lists" aria-current={tab === "lists" ? "page" : undefined}>{Icon.list}Lists</Link>
+      <Link to="/m/meals/lists" aria-current={tab === "shopping" ? "page" : undefined}>{Icon.list}Shopping</Link>
     </nav>
   </>);
 }

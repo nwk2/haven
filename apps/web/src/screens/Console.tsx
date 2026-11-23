@@ -3,7 +3,7 @@ import { isLate } from "@haven/todos-core";
 import { useNowHM } from "@haven/module-todos";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "react-router-dom";
-import { fmtDay, todayIn } from "../date";
+import { todayIn } from "../date";
 import { useSession } from "../session";
 import { Announcements } from "../components/Announcements";
 
@@ -13,15 +13,14 @@ export function Console() {
   const today = h ? todayIn(h.timezone) : "";
   const data = useLiveQuery(async () => {
     if (!db) return null;
-    const [recipes, planned, trips, activity] = await Promise.all([
+    const [recipes, planned, activity] = await Promise.all([
       db.meals_recipes.filter((r) => !r.deleted).count(),
       db.meals_planned.filter((m) => !m.deleted && m.status === "planned").toArray(),
-      db.meals_trips.filter((t) => !t.deleted && t.status !== "finished" && String(t.date) >= today).sortBy("date"),
       db.activity.orderBy("at").reverse().limit(5).toArray(),
     ]);
     const tonight = planned.find((m) => m.date === today && m.slot === "dinner");
     const tonightTitle = tonight ? (await db.meals_recipes.get(String(tonight.recipe_id)))?.title : undefined;
-    return { recipes, planned: planned.length, nextTrip: trips[0], activity, tonightTitle: tonightTitle as string | undefined };
+    return { recipes, planned: planned.length, activity, tonightTitle: tonightTitle as string | undefined };
   }, [db, today]);
 
   if (!h || !data) return null;
@@ -50,7 +49,7 @@ export function Console() {
         <section className="h-card h-stack" style={{ padding: 16 }} aria-labelledby="gs">
           <h2 id="gs" style={{ margin: 0, fontSize: 18 }}>Get started</h2>
           <Link className="h-row" to="/m/meals/recipes/new"><span className="h-row__main"><span className="h-row__title">Add your first recipe</span><span className="h-row__sub">Start here · about 2 minutes</span></span>{Icon.chevron}</Link>
-          <Link className="h-row" to="/m/meals/plan"><span className="h-row__main"><span className="h-row__title">Plan a meal and a grocery run</span><span className="h-row__sub">Your first grocery list builds itself</span></span>{Icon.chevron}</Link>
+          <Link className="h-row" to="/m/meals/plan"><span className="h-row__main"><span className="h-row__title">Plan a meal</span><span className="h-row__sub">Your shopping list builds itself from what’s planned</span></span>{Icon.chevron}</Link>
           <Link className="h-row" to="/settings"><span className="h-row__main"><span className="h-row__title">Invite someone</span><span className="h-row__sub">Share the link; they sign in with Google</span></span>{Icon.chevron}</Link>
         </section>
       )}
@@ -60,8 +59,7 @@ export function Console() {
         {me!.flags.module_meals_enabled && h.enabled_modules.includes("meals") && <Link to="/m/meals/plan" className="h-card tile">
           <span className="tile__icon" aria-hidden="true">{Icon.cart}</span>
           <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>Meals &amp; Groceries</span>
-            <span className="h-row__sub">{data.tonightTitle ? `Tonight: ${data.tonightTitle}` : data.planned ? `${data.planned} meals planned` : "No meals planned yet"}
-              {data.nextTrip ? ` · Next grocery run ${fmtDay(String(data.nextTrip.date))}` : ""}</span></span>
+            <span className="h-row__sub">{data.tonightTitle ? `Tonight: ${data.tonightTitle}` : data.planned ? `${data.planned} meals planned` : "No meals planned yet"}</span></span>
           {Icon.chevron}
         </Link>}
         {!me!.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}

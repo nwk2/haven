@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Ctx, type ModuleCtx } from "./ctx";
 import { Ingredients } from "./Ingredients";
-import { Lists } from "./Lists";
 import { Plan } from "./Plan";
 import { RecipeDetail, Recipes } from "./Recipes";
 import { RecipeEditor } from "./RecipeEditor";
@@ -18,8 +17,7 @@ export default function MealsModule({ ctx }: { ctx: ModuleCtx }) {
         <Route path="recipes/:id" element={<RecipeDetail />} />
         <Route path="recipes/:id/edit" element={<RecipeEditor />} />
         <Route path="ingredients" element={<Ingredients />} />
-        <Route path="lists" element={<Lists />} />
-        <Route path="lists/:tripId" element={<Shopping />} />
+        <Route path="lists" element={<Shopping />} />
         <Route path="*" element={<Navigate to="plan" replace />} />
       </Routes>
     </Ctx.Provider>

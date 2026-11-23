@@ -82,19 +82,14 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .line__edit > :nth-child(3), .line__edit > :nth-child(4) { grid-column: 1 / -1; }
 .step-edit { display: flex; gap: 10px; align-items: flex-start; }
 .step-num { width: 24px; height: 24px; border-radius: 12px; background: var(--haven-ink); color: var(--haven-bg); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 10px; }
-.trip-card { border-radius: var(--haven-shape-radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; border: var(--haven-shape-outline-width) solid var(--haven-border); }
-.trip-card__link { display: flex; flex-direction: column; gap: 8px; color: var(--haven-ink); text-decoration: none; }
-.trip-card__sub { font-size: 13px; color: var(--haven-on-trip-muted); }
 .progress { display: block; height: 8px; border-radius: 4px; background: var(--haven-progress-track); overflow: hidden; margin: 4px 0; }
 .progress span { display: block; height: 100%; background: var(--haven-accent); }
-.shop-head { padding: 16px 8px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; z-index: 5; border-bottom: var(--haven-shape-outline-width) solid var(--haven-border); }
 .item { display: flex; align-items: stretch; gap: 4px; }
 .item__main { flex: 1; min-width: 0; font: inherit; text-align: left; cursor: pointer; }
 .item--done { background: transparent; color: var(--haven-muted); box-shadow: none; min-height: 48px; }
 .item--done .h-row__title { text-decoration: line-through; }
 .check { width: 24px; height: 24px; border-radius: 12px; border: 2px solid var(--haven-muted); box-sizing: border-box; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: background var(--haven-motion-check); }
 .check--on { background: var(--haven-accent); border-color: var(--haven-accent); color: var(--haven-on-accent); }
-.done-row { background: transparent; color: var(--haven-muted); }
 .have-it summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--haven-muted); cursor: pointer; }
 .add-bar { position: fixed; left: 0; right: 0; max-width: 480px; margin: 0 auto; bottom: 0; display: flex; gap: 8px; padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--haven-surface); border-top: 1px solid var(--haven-border); }
 @media (min-width: 1024px) {
@@ -118,14 +113,11 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .photo-empty { border: 1.5px dashed var(--haven-muted); display: flex; align-items: center; justify-content: center; color: var(--haven-muted); font-size: 24px; }
 .hero-photo { width: calc(100% + 32px); margin: -16px -16px 0; height: 200px; object-fit: cover; }
 img.thumb { object-fit: cover; }
-.plan-panel { display: none; }
 @media (min-width: 1024px) {
-  .plan-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; align-items: start; }
   .plan-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
   .plan-days .day { flex-direction: column; align-items: stretch; min-height: 240px; margin: 0; }
   .plan-days .day__date { flex-direction: row; justify-content: flex-start; gap: 6px; width: auto; }
   .plan-days .meal { flex-direction: column; gap: 0; }
-  .plan-panel { display: flex; flex-direction: column; gap: 10px; padding: 16px; position: sticky; top: 16px; }
   .page.mod-main { max-width: 1240px; }
 }
 /* A module and its own settings, as one card (Settings › Modules). */
@@ -134,57 +126,19 @@ img.thumb { object-fit: cover; }
 .module-card > .h-row + .h-row { border-top: 1px solid var(--haven-border); }
 .module-card__setting { padding-left: 24px; }
 
-/* ── Plan: grocery runs strip, status lines, pickers (decision Nov 2026: "A + fix in place") ── */
-.runs { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-.runs .h-section-title { margin: 0; }
-.runs__hint { margin: 0; font-size: 12px; color: var(--haven-muted); }
-.run-chip { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-.run-chip--add { background: transparent; border: 1.5px dashed var(--haven-muted); }
-.run-dot { width: 9px; height: 9px; border-radius: 5px; flex-shrink: 0; display: inline-block; }
-.run-dot--1 { background: var(--haven-trip-ink-1); } .run-dot--2 { background: var(--haven-trip-ink-2); }
-.run-dot--3 { background: var(--haven-trip-ink-3); } .run-dot--4 { background: var(--haven-trip-ink-4); }
-.run-dot--none { background: var(--haven-accent-2); }
 .plan-days { display: flex; flex-direction: column; }
 .plan-days .day { margin-bottom: 8px; }
 .meal-wrap { display: flex; flex-direction: column; gap: 0; }
-.run-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; margin: -2px 0 4px; }
-.run-status--1 { color: var(--haven-trip-ink-1); } .run-status--2 { color: var(--haven-trip-ink-2); }
-.run-status--3 { color: var(--haven-trip-ink-3); } .run-status--4 { color: var(--haven-trip-ink-4); }
-button.run-status--none { align-self: flex-start; min-height: 32px; padding: 0 2px; border: 0; background: none; color: var(--haven-accent-2); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.run-tag { align-self: flex-start; font: inherit; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; border: 0; cursor: pointer; }
-.run-tag--1 { background: var(--haven-trip-1); color: var(--haven-trip-ink-1); } .run-tag--2 { background: var(--haven-trip-2); color: var(--haven-trip-ink-2); }
-.run-tag--3 { background: var(--haven-trip-3); color: var(--haven-trip-ink-3); } .run-tag--4 { background: var(--haven-trip-4); color: var(--haven-trip-ink-4); }
-.day-pick { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 14px; }
-.day-pick button { min-height: 52px; border-radius: 10px; border: 1px solid var(--haven-border); background: var(--haven-surface); color: var(--haven-muted); font: inherit; font-size: 11px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; }
-.day-pick button b { font-size: 16px; color: var(--haven-ink); }
-.day-pick button[aria-checked="true"] { background: var(--haven-ink); border-color: var(--haven-ink); color: var(--haven-bg); }
-.day-pick button[aria-checked="true"] b { color: var(--haven-bg); }
-.day-pick button:disabled { opacity: 0.4; cursor: not-allowed; }
-.cover { padding: 4px 12px; margin: 0; }
-.cover li { padding: 9px 0; border-bottom: 1px solid var(--haven-border); font-size: 14px; }
-.cover li:last-child { border-bottom: 0; }
-/* Lists: meals with no run; run planner checklist (decision Nov 2026: a run holds the meals you pick) */
-.note-card { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border-radius: var(--haven-shape-radius); border: 1.5px dashed var(--haven-accent-2); background: transparent; color: var(--haven-ink); font: inherit; font-size: 13px; cursor: pointer; }
-.note-card strong { color: var(--haven-accent-2); font-size: 14px; }
-.pick-meals { padding: 2px 4px; margin-bottom: 10px; }
-.pick-meals__day { font-size: 12px; font-weight: 700; color: var(--haven-muted); padding: 10px 8px 2px; }
-.pick-meal { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px; border: 0; background: none; color: var(--haven-ink); font: inherit; font-size: 14px; text-align: left; border-radius: 10px; cursor: pointer; }
-.pick-meal:disabled { opacity: 0.5; cursor: not-allowed; }
-.pick-meal__box { width: 24px; height: 24px; box-sizing: border-box; border-radius: 7px; border: 2px solid var(--haven-muted); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-.pick-meal[aria-checked="true"] .pick-meal__box { background: var(--haven-accent); border-color: var(--haven-accent); color: var(--haven-on-accent); }
-.pick-meal .run-status { margin: 2px 0 0; }
-.day-pick button small { font-size: 9px; }
-button.run-status--btn { align-self: flex-start; min-height: 32px; padding: 0 2px; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-/* Run progress: in cart / have it / couldn't get as segments of one bar (decision Nov 2026). */
-.run-progress { display: flex; flex-direction: column; gap: 6px; }
+/* List progress: bought / have it as segments of one bar. */
+.list-progress { display: flex; flex-direction: column; gap: 6px; }
 .seg-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; background: var(--haven-progress-track); overflow: hidden; }
 .seg { display: block; height: 100%; flex-shrink: 0; }
 .seg[style*="width: 0%"] { display: none; }
 .seg--cart { background: var(--haven-accent); }
 .seg--have { background: var(--haven-muted); opacity: 0.7; }
 .seg--cannot { background: var(--haven-accent-2); }
-.run-progress__text { font-size: 13px; color: var(--haven-on-trip-muted); }
-.run-progress__text--done strong, .run-progress__text--done { color: var(--haven-ink); }
+.list-progress__text { font-size: 13px; color: var(--haven-on-trip-muted); }
+.list-progress__text--done strong, .list-progress__text--done { color: var(--haven-ink); }
 
 /* Settings rows with a switch (Notifications) */
 .flag { padding: 14px 0; border-top: 1px solid var(--haven-border); gap: 14px; }

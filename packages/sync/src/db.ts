@@ -1,11 +1,11 @@
 import Dexie, { type Table } from "dexie";
 
 /** Household tables mirrored on the device (Technical spec › Data model). */
-export const TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
+export const TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_list_states", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
 export type TableName = (typeof TABLES)[number];
 
 /** Columns stored as JSON text in D1, as objects on the device. */
-export const JSON_COLS = new Set(["ingredients", "steps", "tags", "final_lines", "recipe_snapshot", "repeat"]);
+export const JSON_COLS = new Set(["ingredients", "steps", "tags", "recipe_snapshot", "repeat"]);
 
 export interface Row { id: string; version?: number; deleted?: number; [k: string]: unknown }
 export interface OutboxEntry { seq?: number; id: string; table: TableName; rowId: string; fields: Record<string, unknown> }
@@ -16,8 +16,7 @@ export class HavenDB extends Dexie {
   meals_ingredients!: Table<Row, string>;
   meals_recipes!: Table<Row, string>;
   meals_planned!: Table<Row, string>;
-  meals_trips!: Table<Row, string>;
-  meals_items!: Table<Row, string>;
+  meals_list_states!: Table<Row, string>;
   activity!: Table<Row, string>;
   todos_lists!: Table<Row, string>;
   todos_items!: Table<Row, string>;
@@ -38,10 +37,15 @@ export class HavenDB extends Dexie {
     });
     // v2 (Nov 2026): To-dos module.
     this.version(2).stores({ todos_lists: "id", todos_items: "id, list_id, due_date", todos_mutes: "id, user_id" });
+    // v3 (Nov 2026): the one shopping list — state lives on the meal-ingredient.
+    // meals_trips/meals_items stay declared (their rows stop syncing, but a device with
+    // unsent trip changes must still be able to re-apply them); the server drops the
+    // tables later (migration 0010), after which a v4 can remove them here too.
+    this.version(3).stores({ meals_list_states: "id, meal_id" });
   }
 
   table_(name: TableName): Table<Row, string> { return this.table(name) as Table<Row, string>; }
 }
 
-/** meals_items are keyed by (trip_id, key) on the server; locally by "trip|key". */
-export const itemId = (tripId: string, key: string) => `${tripId}|${key}`;
+/** List states are keyed by meal on the device: "mealId|ingredientId_family" (extras: "extra_<id>"). */
+export const itemId = (mealId: string, key: string) => `${mealId}|${key}`;

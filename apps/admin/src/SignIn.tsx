@@ -7,7 +7,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 export function SignIn() {
   const [params] = useSearchParams();
   const nav = useNavigate();
-  const [mode, setMode] = useState<"google" | "authenticate" | "setup">("google");
+  const [mode, setMode] = useState<"google" | "authenticate" | "setup" | "code">("google");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -37,13 +37,30 @@ export function SignIn() {
     }
   }
 
+  async function signInWithCode() {
+    setBusy(true); setError(undefined);
+    try {
+      const v = await fetch("/auth/code", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim() }) });
+      if (!v.ok) throw new Error((await v.json()).error);
+      nav("/sign-in?step=passkey", { replace: true });
+    } catch (e) {
+      setError(e instanceof Error && e.message === "too_many" ? "Too many attempts. Wait an hour." : "That code isn’t right, or it has expired or already been used.");
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="signin">
       <div className="h-card h-stack" style={{ padding: 28, gap: 16, maxWidth: 420, width: "100%" }}>
         <div className="spread" style={{ justifyContent: "flex-start", gap: 10 }}><img src="/icon-192-maskable.png" alt="" width={40} height={40} style={{ borderRadius: 10 }} /><span><strong>Haven</strong><br /><span className="admin-badge">Admin</span></span></div>
         {params.get("error") && <p className="error" role="alert">{params.get("error") === "too_many" ? "Too many sign-in attempts. Wait an hour." : "Sign-in didn’t finish. Try again."}</p>}
         {mode === "google" && (<><h1>Sign in to admin</h1><p className="muted">Use the Google account set as the Haven admin. You’ll confirm with your passkey next.</p>
-          <a className="h-btn h-btn--secondary" href="/auth/google">Continue with Google</a></>)}
+          <a className="h-btn h-btn--secondary" href="/auth/google">Continue with Google</a>
+          <Button variant="text" onClick={() => setMode("code")}>Use a sign-in code instead</Button></>)}
+        {mode === "code" && (<><h1>Sign in with a code</h1><p className="muted">Enter the one-time code from Account › Sign in on another device. It works once and expires in 10 minutes — you’ll still confirm with your passkey next.</p>
+          <Field label="Sign-in code" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" placeholder="XXXX-XXXX" error={error} />
+          <Button loading={busy} disabled={!code.trim()} onClick={signInWithCode}>Sign in with code</Button>
+          <Button variant="text" onClick={() => setMode("google")}>Back to Google sign-in</Button></>)}
         {mode === "authenticate" && (<><h1>Confirm it’s you</h1><p className="muted">Use your passkey (Face ID, fingerprint or security key) to open admin.</p>
           <Button loading={busy} onClick={go}>Use passkey</Button>{error && <p className="error">{error}</p>}
           <span className="muted" style={{ fontSize: 12 }}>Lost your passkey? Set a new ADMIN_SETUP_CODE secret to register a new one.</span></>)}

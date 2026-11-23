@@ -1,4 +1,4 @@
-import { HavenDB, JSON_COLS, itemId, type OutboxEntry, type Row, type TableName } from "./db";
+import { HavenDB, JSON_COLS, type OutboxEntry, type Row, type TableName } from "./db";
 
 export type SyncState = "connecting" | "offline" | "syncing" | "synced" | "error" | "too_old";
 export interface SyncStatus { state: SyncState; pending: number }
@@ -164,7 +164,7 @@ export class Sync {
         const { table: _t, rowId, ...rest } = raw as Record<string, unknown> & { rowId?: string };
         const row: Row = { ...rest, id: "" };
         for (const c of JSON_COLS) if (typeof row[c] === "string") { try { row[c] = JSON.parse(row[c] as string); } catch { /* keep text */ } }
-        row.id = table === "meals_items" ? itemId(String(row.trip_id), String(row.key)) : String(rowId ?? rest.id);
+        row.id = String(rowId ?? rest.id);
         const t = this.db.table_(table);
         const existing = (await t.get(row.id)) ?? {};
         const merged: Row = { ...existing, ...row };
@@ -201,7 +201,7 @@ export class Sync {
       mutations: batch.map((e) => ({
         id: e.id,
         table: e.table,
-        rowId: e.table === "meals_items" ? e.rowId.split("|").slice(1).join("|") : e.rowId,
+        rowId: e.rowId,
         fields: serialize(e.fields),
       })),
     });
