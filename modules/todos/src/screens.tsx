@@ -25,7 +25,7 @@ export function Header({ title, back, right }: { title: string; back?: string; r
 export interface Undo { text: string; undo?: () => void }
 export function Toast({ t, onDone }: { t: Undo; onDone: () => void }) {
   useEffect(() => { const x = setTimeout(onDone, 5000); return () => clearTimeout(x); }, [t, onDone]);
-  return <div className="h-toast" role="status"><span>{t.text}</span>{t.undo && <button type="button" className="linklike" onClick={() => { t.undo!(); onDone(); }}>Undo</button>}</div>;
+  return <div className={`h-toast${t.undo ? " h-toast--row" : ""}`} role="status"><span>{t.text}</span>{t.undo && <button type="button" className="h-toast__action" onClick={() => { t.undo!(); onDone(); }}>Undo</button>}</div>;
 }
 
 /** Ticking: checklists toggle in place; repeating items move to their next date; one-time items go to Done. */

@@ -1,9 +1,9 @@
-import { nextDue, repeatLabel, type Repeat, type RepeatKind } from "@haven/todos-core";
+import { addDays, nextDue, repeatLabel, type Repeat, type RepeatKind } from "@haven/todos-core";
 import { Button, Field, Sheet, Switch } from "@haven/ui";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCtx } from "./ctx";
-import { dayLabel, firstName, newId, useMutate, whenLabel, type TItem, type TList } from "./data";
+import { dayLabel, firstName, newId, timeLabel, useMutate, whenLabel, type TItem, type TList } from "./data";
 import type { Undo } from "./screens";
 
 const KINDS: RepeatKind[] = ["daily", "weekly", "biweekly", "monthly", "monthly_nth", "yearly", "after"];
@@ -16,6 +16,10 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
   const save = (p: Partial<TItem>) => { setF((x) => ({ ...x, ...p })); void m.item(item.id, p); };
   const name = (id?: string | null) => firstName(members.find((x) => x.id === id)?.name);
   const repeatValue = f.repeat ? f.repeat.kind : "";
+  const tomorrow = addDays(today, 1);
+  const otherDay = !!f.due_date && f.due_date !== today && f.due_date !== tomorrow;
+  // No date clears the time and repeat too (both need a day).
+  const setDay = (d: string | null) => save(d ? { due_date: d } : { due_date: null, due_time: null, repeat: null });
   const setRepeat = (k: string) => save({ repeat: k ? ({ kind: k as RepeatKind, ...(k === "after" ? { n: f.repeat?.n ?? 3 } : {}) } as Repeat) : null });
 
   return (
@@ -23,17 +27,35 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
       <div className="h-stack">
         <Field label="Title" value={f.title} maxLength={200} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => f.title.trim() && f.title !== item.title && save({ title: f.title.trim() })} />
         {!list.checklist && (<>
-          <div className="two-col">
-            <Field label="Due" type="date" value={f.due_date ?? ""} onChange={(e) => save(e.target.value ? { due_date: e.target.value } : { due_date: null, due_time: null, repeat: null })} />
-            <Field label="Time" type="time" value={f.due_time ?? ""} disabled={!f.due_date} hint={!f.due_date ? "Pick a day first" : undefined} onChange={(e) => save({ due_time: e.target.value || null })} />
+          {/* When (Nov 2026 polish): chips instead of blank date boxes; Time and Repeat appear once there's a day. */}
+          <div><span className="h-field__label" id="due-l">Due</span>
+            <div className="td-chips" role="radiogroup" aria-labelledby="due-l">
+              <button type="button" role="radio" className="td-chip" aria-checked={!f.due_date} onClick={() => setDay(null)}>No date</button>
+              <button type="button" role="radio" className="td-chip" aria-checked={f.due_date === today} onClick={() => setDay(today)}>Today</button>
+              <button type="button" role="radio" className="td-chip" aria-checked={f.due_date === tomorrow} onClick={() => setDay(tomorrow)}>Tomorrow</button>
+              <label className="td-chip td-chip--pick" role="radio" aria-checked={otherDay}>
+                {otherDay ? dayLabel(f.due_date!, today) : "Pick a date…"}
+                <input type="date" aria-label="Pick a date" value={f.due_date ?? ""} onChange={(e) => setDay(e.target.value || null)} />
+              </label>
+            </div>
           </div>
-          <label className="h-field"><span className="h-field__label">Repeat</span>
-            <select className="h-input" value={repeatValue} disabled={!f.due_date} onChange={(e) => setRepeat(e.target.value)}>
-              <option value="">Doesn’t repeat</option>
-              {KINDS.map((k) => <option key={k} value={k}>{repeatLabel({ kind: k, n: f.repeat?.n ?? 3 }, f.due_date)}</option>)}
-            </select>
-            {!f.due_date && <span className="h-field__hint">Pick a day first</span>}
-          </label>
+          {f.due_date && (<>
+            <div><span className="h-field__label" id="time-l">Time</span>
+              <div className="td-chips" role="radiogroup" aria-labelledby="time-l">
+                <button type="button" role="radio" className="td-chip" aria-checked={!f.due_time} onClick={() => save({ due_time: null })}>Any time</button>
+                <label className="td-chip td-chip--pick" role="radio" aria-checked={!!f.due_time}>
+                  {f.due_time ? timeLabel(f.due_time) : "Set a time…"}
+                  <input type="time" aria-label="Set a time" value={f.due_time ?? ""} onChange={(e) => save({ due_time: e.target.value || null })} />
+                </label>
+              </div>
+            </div>
+            <label className="h-field"><span className="h-field__label">Repeat</span>
+              <select className="h-input" value={repeatValue} onChange={(e) => setRepeat(e.target.value)}>
+                <option value="">Doesn’t repeat</option>
+                {KINDS.map((k) => <option key={k} value={k}>{repeatLabel({ kind: k, n: f.repeat?.n ?? 3 }, f.due_date)}</option>)}
+              </select>
+            </label>
+          </>)}
           {f.repeat?.kind === "after" && (
             <label className="h-field"><span className="h-field__label">Days after it’s done</span>
               <select className="h-input" value={f.repeat.n ?? 3} onChange={(e) => save({ repeat: { kind: "after", n: Number(e.target.value) } })}>

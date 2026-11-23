@@ -44,7 +44,7 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-stack { display: flex; flex-direction: column; gap: 8px; }
 
 .h-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; border: 1px solid transparent; white-space: nowrap; }
-.h-chip { min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--haven-muted); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.h-chip { min-height: 36px; padding: 0 14px; border-radius: var(--haven-shape-pill-radius); border: var(--haven-shape-border-width) solid var(--haven-muted); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .h-chip[aria-pressed="true"], .h-chip[aria-checked="true"] { background: var(--haven-ink); color: var(--haven-bg); border-color: var(--haven-ink); }
 
 .h-switch { width: 52px; height: 32px; border-radius: 16px; border: 0; padding: 0; position: relative; background: var(--haven-muted); cursor: pointer; flex-shrink: 0; }
@@ -84,11 +84,11 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }
 .h-pill--warn .h-pill__dot { background: var(--haven-danger); }
 
-/* Announcement: from the Haven team (decision Nov 2026). Colours reuse the run inks (≥4.85:1 on every surface). */
 .h-ann { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 8px 12px 14px; border-radius: 14px; background: var(--t-bg); border-left: 4px solid var(--t); color: var(--haven-ink); }
-.h-ann--info { --t: var(--haven-trip-ink-2); --t-bg: var(--haven-trip-2); }
-.h-ann--warn { --t: var(--haven-trip-ink-1); --t-bg: var(--haven-trip-1); }
-.h-ann--ok { --t: var(--haven-trip-ink-3); --t-bg: var(--haven-trip-3); }
+/* Same meaning in every theme: Info blue, Heads-up amber, Fixed green (tokens ann*; theme run colours differ per theme). */
+.h-ann--info { --t: var(--haven-ann-info); --t-bg: var(--haven-ann-info-bg); }
+.h-ann--warn { --t: var(--haven-ann-warn); --t-bg: var(--haven-ann-warn-bg); }
+.h-ann--ok { --t: var(--haven-ann-ok); --t-bg: var(--haven-ann-ok-bg); }
 .h-ann__icon { color: var(--t); padding-top: 1px; display: flex; }
 .h-ann__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .h-ann__from { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--t); }
@@ -98,4 +98,8 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-ann__x { width: 40px; height: 40px; margin: -8px -2px 0 0; border: 0; border-radius: 20px; background: none; color: var(--haven-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .h-ann__x:hover { background: rgba(127, 127, 127, 0.15); }
 .h-ann-stack { display: flex; flex-direction: column; gap: 10px; }
-.h-ann-more { align-self: flex-start; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.h-ann-more { align-self: flex-start; min-height: 40px; padding: 0 14px; border-radius: var(--haven-shape-pill-radius); border: var(--haven-shape-border-width) solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* Toast with an action (Undo): one row; the action uses the toast's own colour so it reads in every theme. */
+.h-toast--row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; }
+.h-toast__action { flex-shrink: 0; min-height: 44px; padding: 0 10px; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

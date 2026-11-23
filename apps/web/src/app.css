@@ -222,7 +222,7 @@ button.run-status--btn { align-self: flex-start; min-height: 32px; padding: 0 2p
 .td-add { display: flex; gap: 8px; align-items: stretch; }
 .td-add .h-input { flex: 1; min-width: 0; }
 .td-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.td-people button { min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.td-people button { min-height: 40px; padding: 0 14px; border-radius: var(--haven-shape-pill-radius); border: var(--haven-shape-border-width) solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .td-people button[aria-checked="true"] { border-color: var(--haven-ink); box-shadow: inset 0 0 0 1px var(--haven-ink); }
 .td-facts { font-size: 12px; margin: 0; line-height: 1.6; }
 .td-danger { color: var(--haven-danger) !important; }
@@ -231,9 +231,20 @@ button.run-status--btn { align-self: flex-start; min-height: 32px; padding: 0 2p
 .td-menu__row:last-child { border-bottom: 0; }
 .td-menu__row small { display: block; font-size: 12px; color: var(--haven-muted); }
 .td-emoji { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.td-emoji button { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--haven-border); background: var(--haven-surface); font-size: 20px; cursor: pointer; }
+.td-emoji button { width: 44px; height: 44px; border-radius: var(--haven-shape-radius); border: 1px solid var(--haven-border); background: var(--haven-surface); font-size: 20px; cursor: pointer; }
 .td-emoji button[aria-checked="true"] { border-color: var(--haven-ink); box-shadow: inset 0 0 0 1px var(--haven-ink); }
 .td-remind { padding: 14px 16px; border-left: 4px solid var(--haven-accent); }
 .td-remind h2 { margin: 0 0 4px; font-size: 16px; }
 .td-remind p { margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: var(--haven-muted); }
 .td-remind__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Date and time fields never overflow their row (iOS gives them a wide intrinsic size). */
+.two-col > * { min-width: 0; }
+input[type="date"].h-input, input[type="time"].h-input, input[type="datetime-local"].h-input { -webkit-appearance: none; appearance: none; min-width: 0; width: 100%; display: block; }
+
+/* To-dos item sheet: Due / Time as chips; "Pick a date…" opens the phone's own picker */
+.td-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.td-chip { position: relative; min-height: 40px; padding: 0 14px; border-radius: var(--haven-shape-pill-radius); border: var(--haven-shape-border-width) solid var(--haven-border); background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; cursor: pointer; }
+.td-chip[aria-checked="true"] { border-color: var(--haven-ink); box-shadow: inset 0 0 0 1px var(--haven-ink); }
+.td-chip--pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; cursor: pointer; border: 0; padding: 0; -webkit-appearance: none; appearance: none; }
+.td-chip--pick:focus-within { outline: 2px solid var(--haven-focus); outline-offset: 2px; }

@@ -127,8 +127,17 @@ const KIND_ICON: Record<AnnouncementKind, JSX.Element> = {  // Info reuses the a
 export const announcementKindName = (k: AnnouncementKind) => KIND_NAME[k];
 export const announcementKindIcon = (k: AnnouncementKind) => KIND_ICON[k];
 
+/** "Today, 11:00 PM", "Tomorrow, 9:00 AM", or "Sun, Nov 29, 3:00 PM" further out (the mockup's wording). */
+function untilLabel(ms: number, now = Date.now()) {
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(ms);
+  const day = (t: number) => new Date(t).toDateString();
+  if (day(ms) === day(now)) return `Today, ${time}`;
+  if (day(ms) === day(now + 86_400_000)) return `Tomorrow, ${time}`;
+  return new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(ms);
+}
+
 export function Announcement({ a, onDismiss, preview }: { a: AnnouncementData; onDismiss?: () => void; preview?: boolean }) {
-  const until = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(a.ends_at);
+  const until = untilLabel(a.ends_at);
   return (
     <section className={`h-ann h-ann--${a.kind}`} role="region" aria-label={`Announcement from the Haven team${a.title ? `: ${a.title}` : ""}`}>
       <span className="h-ann__icon">{KIND_ICON[a.kind]}</span>
