@@ -1,5 +1,5 @@
 import { addDays, nextDue, repeatLabel, type Repeat, type RepeatKind } from "@haven/todos-core";
-import { Button, Field, Sheet, Switch } from "@haven/ui";
+import { Button, Field, Select, Sheet, Switch } from "@haven/ui";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCtx } from "./ctx";
@@ -53,17 +53,17 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
               </div>
             </div>
             <label className="td-field"><span className="h-field__label">Repeat</span>
-              <select className="h-input" value={repeatValue} onChange={(e) => setRepeat(e.target.value)}>
+              <Select value={repeatValue} onChange={(e) => setRepeat(e.target.value)}>
                 <option value="">Doesn’t repeat</option>
                 {KINDS.map((k) => <option key={k} value={k}>{repeatLabel({ kind: k, n: f.repeat?.n ?? 3 }, f.due_date)}</option>)}
-              </select>
+              </Select>
             </label>
           </>)}
           {f.repeat?.kind === "after" && (
             <label className="td-field"><span className="h-field__label">Days after it’s done</span>
-              <select className="h-input" value={f.repeat.n ?? 3} onChange={(e) => save({ repeat: { kind: "after", n: Number(e.target.value) } })}>
+              <Select value={f.repeat.n ?? 3} onChange={(e) => save({ repeat: { kind: "after", n: Number(e.target.value) } })}>
                 {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
+              </Select>
             </label>
           )}
           <div className="td-field"><span className="h-field__label">Who</span>

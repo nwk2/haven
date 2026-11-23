@@ -1,5 +1,5 @@
 import { familyOf, parseLine, parseList, type ParsedLine } from "@haven/meals-core";
-import { Button, Dialog, Field, Sheet, Stepper } from "@haven/ui";
+import { Button, Dialog, Field, Select, Sheet, Stepper } from "@haven/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCtx } from "./ctx";
@@ -24,6 +24,7 @@ export function RecipeEditor() {
   const [group, setGroup] = useState("");
   const [queue, setQueue] = useState<Pending[]>([]);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   const [undo, setUndo] = useState<{ line: StoredLine; index: number } | null>(null);
   const exists = useRef(!!id);
 
@@ -117,18 +118,18 @@ export function RecipeEditor() {
             {parsed.toTaste && <span className="h-badge badge--neutral">To taste</span>}{parsed.optional && <span className="h-badge badge--neutral">Optional</span>}
             {parsed.unread && <span className="h-badge badge--warn">No amount</span>}
             <span className="h-badge badge--neutral">{findIngredient(parsed.name) ? SECTIONS.find(([k]) => k === findIngredient(parsed.name)!.section)?.[1] : "New ingredient"}</span></div>}
-          {(groups.length > 0 || group) && <label className="chips"><span className="muted" style={{ fontSize: 12 }}>Group</span>
-            <select className="h-input" style={{ width: "auto" }} value={group} onChange={(e) => setGroup(e.target.value)}><option value="">None</option>{groups.map((g) => <option key={g}>{g}</option>)}</select></label>}
+          {(groups.length > 0 || group) && <label className="h-field"><span className="h-field__label">Group</span>
+            <Select value={group} onChange={(e) => setGroup(e.target.value)}><option value="">None</option>{[...new Set([...groups, group].filter(Boolean))].map((g) => <option key={g}>{g}</option>)}</Select></label>}
         </div>
         {!draft.ingredients.length && <div className="h-empty"><strong>No ingredients yet</strong><span className="muted" style={{ fontSize: 12 }}>Type one above or paste a whole list. At least one is needed to save.</span></div>}
         {["", ...groups].map((g) => {
           const rows = draft.ingredients.map((l, i) => ({ l, i })).filter(({ l }) => (l.group ?? "") === g);
           if (!rows.length) return null;
           return (<div key={g} className="h-stack">{g && <strong className="muted">{g}</strong>}
-            {rows.map(({ l, i }) => <LineRow key={i} d={d} line={l} index={i} count={draft.ingredients.length} recipeId={recipeId} onChange={(p) => updateLine(i, p)} onMove={(dir) => move(i, dir)} onRemove={() => remove(i)} />)}
+            {rows.map(({ l, i }, pos) => <LineRow key={i} d={d} line={l} first={pos === 0} last={pos === rows.length - 1} recipeId={recipeId} onChange={(p) => updateLine(i, p)} onMove={(dir) => move(i, dir)} onRemove={() => remove(i)} />)}
           </div>);
         })}
-        <Button variant="text" onClick={() => { const name = prompt("Group name, e.g. For the salsa"); if (name?.trim()) setGroup(name.trim()); }}>+ Add group</Button>
+        <Button variant="text" onClick={() => setGroupOpen(true)}>+ Add group</Button>
       </section>
 
       <section className="h-stack" aria-labelledby="sth">
@@ -145,7 +146,7 @@ export function RecipeEditor() {
         <h2 id="tgh" style={{ margin: 0, fontSize: 17 }}>Tags and source</h2>
         <div className="chips">{draft.tags.map((t) => <button key={t} className="h-chip" aria-pressed="true" aria-label={`Remove tag ${t}`} onClick={() => set({ tags: draft.tags.filter((x) => x !== t) })}>{t} ×</button>)}
           <form onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("tag")?.toString().trim(); if (v && !draft.tags.includes(v)) set({ tags: [...draft.tags, v] }); e.currentTarget.reset(); }}>
-            <label className="h-sr" htmlFor="tag">Add tag</label><input id="tag" name="tag" className="h-input" style={{ width: 120, minHeight: 36 }} placeholder="+ Tag" /></form></div>
+            <label className="h-sr" htmlFor="tag">Add tag</label><input id="tag" name="tag" className="h-input" style={{ width: 120 }} placeholder="+ Tag" /></form></div>
         <Field label="Source (optional)" value={draft.source} onChange={(e) => set({ source: e.target.value })} placeholder="Link or note" />
       </section>
     </main>
@@ -157,11 +158,12 @@ export function RecipeEditor() {
       </Sheet>
     )}
     {pasteOpen && <PasteDialog onClose={() => setPasteOpen(false)} onAdd={(lines) => { submit(lines.map((parsed) => ({ parsed, group }))); setPasteOpen(false); }} />}
+    {groupOpen && <GroupDialog onClose={() => setGroupOpen(false)} onAdd={(name) => { setGroup(name); setGroupOpen(false); }} />}
     {undo && <UndoToast text="Ingredient removed" onUndo={() => { const a = [...draft.ingredients]; a.splice(undo.index, 0, undo.line); set({ ingredients: a }); setUndo(null); }} onDone={() => setUndo(null)} />}
   </>);
 }
 
-function LineRow({ d, line, index, count, recipeId, onChange, onMove, onRemove }: { d: MealsData; line: StoredLine; index: number; count: number; recipeId: string; onChange: (p: Partial<StoredLine>) => void; onMove: (dir: -1 | 1) => void; onRemove: () => void }) {
+function LineRow({ d, line, first, last, recipeId, onChange, onMove, onRemove }: { d: MealsData; line: StoredLine; first: boolean; last: boolean; recipeId: string; onChange: (p: Partial<StoredLine>) => void; onMove: (dir: -1 | 1) => void; onRemove: () => void }) {
   const [editing, setEditing] = useState(false);
   const ing = ingredientOf(d, line.ingredientId);
   const unread = line.qty == null && !line.toTaste;
@@ -172,7 +174,7 @@ function LineRow({ d, line, index, count, recipeId, onChange, onMove, onRemove }
   return (
     <div className={`h-card line${unread ? " line--warn" : other ? " line--hint" : ""}`}>
       <div className="line__main">
-        <div className="line__move"><button className="h-icon-btn" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>↑</button><button className="h-icon-btn" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}>↓</button></div>
+        <div className="line__move"><button className="h-icon-btn" aria-label="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button><button className="h-icon-btn" aria-label="Move down" disabled={last} onClick={() => onMove(1)}>↓</button></div>
         <button className="line__text" onClick={() => setEditing(!editing)} aria-expanded={editing}>
           <span><strong>{line.toTaste ? "" : amount(line.qty, line.unit)}</strong> {ing?.name ?? "?"}{line.note && <span className="muted">, {line.note}</span>}</span>
           <span className="chips">{line.toTaste && <span className="h-badge badge--neutral">To taste</span>}{line.optional && <span className="h-badge badge--neutral">Optional</span>}<span className="muted" style={{ fontSize: 11 }}>{SECTIONS.find(([k]) => k === ing?.section)?.[1]}</span></span>
@@ -183,9 +185,9 @@ function LineRow({ d, line, index, count, recipeId, onChange, onMove, onRemove }
       {other && !unread && <div className="line__note">{ing?.name} is in {other.unit} on your other recipes, so they won’t merge on lists. Consider using {other.unit}.</div>}
       {editing && (
         <div className="line__edit">
-          <Field label="Amount" inputMode="decimal" value={line.qty ?? ""} onChange={(e) => onChange({ qty: e.target.value === "" ? undefined : Number(e.target.value.replace(",", ".")), toTaste: undefined })} />
-          <label className="h-field"><span className="h-field__label">Unit</span><select className="h-input" value={line.unit ?? "whole"} onChange={(e) => onChange({ unit: e.target.value })}>
-            {["whole", "g", "kg", "ml", "l", "tsp", "tbsp", "cup", "floz", "oz", "lb", "can", "pack", "clove", "bunch", "slice", "pinch"].map((u) => <option key={u} value={u}>{u === "floz" ? "fl oz" : u}</option>)}</select></label>
+          <Field label="Amount" inputMode="decimal" value={line.qty ?? ""} onChange={(e) => { const n = e.target.value === "" ? undefined : Number(e.target.value.replace(",", ".")); onChange({ qty: n != null && Number.isFinite(n) ? n : undefined, toTaste: undefined }); }} />
+          <label className="h-field"><span className="h-field__label">Unit</span><Select value={line.unit ?? "whole"} onChange={(e) => onChange({ unit: e.target.value })}>
+            {["whole", "g", "kg", "ml", "l", "tsp", "tbsp", "cup", "floz", "oz", "lb", "can", "pack", "clove", "bunch", "slice", "pinch"].map((u) => <option key={u} value={u}>{u === "floz" ? "fl oz" : u}</option>)}</Select></label>
           <Field label="Note" value={line.note ?? ""} onChange={(e) => onChange({ note: e.target.value || undefined })} />
           <div className="chips">
             <button className="h-chip" aria-pressed={!!line.optional} onClick={() => onChange({ optional: !line.optional || undefined })}>Optional</button>
@@ -204,6 +206,17 @@ function PasteDialog({ onClose, onAdd }: { onClose: () => void; onAdd: (lines: P
     <Dialog title="Paste a list" body="One ingredient per line. Lines without an amount are kept and highlighted for you to check." onClose={onClose}>
       <Field label="Ingredients" textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder={"2 cans black beans\n150 g feta\nSalt, to taste"} />
       <Button disabled={!lines.length} onClick={() => onAdd(lines)}>{lines.length ? `Add ${lines.length} ${lines.length === 1 ? "line" : "lines"}` : "Add"}</Button>
+      <Button variant="text" onClick={onClose}>Cancel</Button>
+    </Dialog>
+  );
+}
+
+function GroupDialog({ onClose, onAdd }: { onClose: () => void; onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <Dialog title="Add a group" body="Groups keep a recipe's ingredients organised, e.g. For the salsa." onClose={onClose}>
+      <Field label="Group name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. For the salsa" />
+      <Button disabled={!name.trim()} onClick={() => onAdd(name.trim())}>Add group</Button>
       <Button variant="text" onClick={onClose}>Cancel</Button>
     </Dialog>
   );

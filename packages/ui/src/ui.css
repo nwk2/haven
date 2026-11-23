@@ -18,6 +18,10 @@
 .h-input { min-height: var(--haven-space-min-target); box-sizing: border-box; padding: 0 12px; border-radius: var(--haven-shape-radius); border: var(--haven-shape-border-width) solid var(--haven-muted);
   background: var(--haven-surface); color: var(--haven-ink); font: inherit; font-size: 16px; width: 100%; }
 textarea.h-input { padding: 10px 12px; resize: vertical; }
+/* Native selects: no OS indicator (it renders differently per platform); the shared Select below supplies the app chevron. */
+select.h-input { -webkit-appearance: none; appearance: none; padding-right: 36px; }
+.h-select { position: relative; display: block; }
+.h-select__icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%) rotate(90deg); color: var(--haven-muted); pointer-events: none; display: flex; }
 .h-input[aria-invalid="true"] { border: 2px solid var(--haven-danger); }
 .h-field__msg { font-size: var(--haven-type-meta); font-weight: 600; color: var(--haven-muted); }
 .h-field__msg--error { color: var(--haven-danger); }
@@ -28,6 +32,7 @@ textarea.h-input { padding: 10px 12px; resize: vertical; }
 .h-modhead__eyebrow { font-size: 11px; font-weight: 700; color: var(--haven-accent); letter-spacing: 0.06em; }
 .h-modhead h1 { margin: 0; font-size: 26px; }
 .h-icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--haven-ink); border-radius: var(--haven-shape-radius); cursor: pointer; }
+.h-icon-btn:disabled { opacity: 0.35; cursor: default; }
 
 .h-tabbar { position: fixed; left: 0; right: 0; max-width: 480px; margin: 0 auto; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--haven-surface); border-top: 1px solid var(--haven-border);
   padding-bottom: env(safe-area-inset-bottom, 0px); }

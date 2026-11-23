@@ -1,5 +1,5 @@
 import type { ListRow } from "@haven/meals-core";
-import { Button, Field, Icon, Sheet } from "@haven/ui";
+import { Button, Field, Icon, Select, Sheet } from "@haven/ui";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCtx } from "./ctx";
@@ -166,7 +166,7 @@ function ExtraSheet({ trip, item, onClose }: { trip: TripRow; item: ItemRow; onC
       <div className="h-stack">
         <Field label="Name" value={label} onChange={(e) => setLabel(e.target.value)} />
         <div className="two-col"><Field label="Amount" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} /><Field label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} /></div>
-        <label className="h-field"><span className="h-field__label">Store section</span><select className="h-input" value={section} onChange={(e) => setSection(e.target.value)}>{SECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+        <label className="h-field"><span className="h-field__label">Store section</span><Select value={section} onChange={(e) => setSection(e.target.value)}>{SECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></label>
         <Button block onClick={async () => { await m.item(trip.id, item.key, { label: label.trim() || item.label, qty: qty ? Number(qty.replace(",", ".")) : null, unit: unit || null, section }); onClose(); }}>Save</Button>
         <Button variant="secondary" block onClick={async () => { await m.item(trip.id, item.key, { unavailable: item.unavailable ? 0 : 1 }); onClose(); }}>{item.unavailable ? "Found it after all" : "Couldn’t get it"}</Button>
         <Button variant="text" className="danger-text" onClick={async () => { await m.item(trip.id, item.key, { deleted: 1 }); onClose(); }}>Delete item</Button>

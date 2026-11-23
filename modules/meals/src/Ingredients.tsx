@@ -1,4 +1,4 @@
-import { Button, Dialog, Field } from "@haven/ui";
+import { Button, Dialog, Field, Select } from "@haven/ui";
 import { useState } from "react";
 import { useCtx } from "./ctx";
 import { SECTIONS, useMealsData, useMutate, type Ingredient } from "./data";
@@ -53,7 +53,7 @@ function EditIngredient({ ing, onClose }: { ing: Ingredient; onClose: () => void
   return (
     <Dialog title={ing.name} onClose={onClose}>
       <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-      <label className="h-field"><span className="h-field__label">Store section</span><select className="h-input" value={section} onChange={(e) => setSection(e.target.value as typeof section)}>{SECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+      <label className="h-field"><span className="h-field__label">Store section</span><Select value={section} onChange={(e) => setSection(e.target.value as typeof section)}>{SECTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></label>
       <Button disabled={!name.trim()} onClick={async () => { await m.put("meals_ingredients", ing.id, { name: name.trim(), section }); onClose(); }}>Save</Button>
       <Button variant="text" onClick={onClose}>Cancel</Button>
     </Dialog>
