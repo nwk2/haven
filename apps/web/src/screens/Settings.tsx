@@ -83,8 +83,8 @@ export function Settings() {
         </div>
         {me.flags.module_todos_enabled && (
           <div className="module-card h-card">
-            <div className="h-row"><span className="h-row__main"><span className="h-row__title">To-dos</span><span className="h-row__sub">{h.enabled_modules.includes("todos") ? `On for everyone in ${h.name}` : "Shared lists: chores, packing, household jobs"}</span></span>
-              {owner && <Switch label="To-dos module" checked={h.enabled_modules.includes("todos")} onChange={() => open("modules-todos")} />}</div>
+            <div className="h-row"><span className="h-row__main"><span className="h-row__title">Tasks</span><span className="h-row__sub">{h.enabled_modules.includes("todos") ? `On for everyone in ${h.name}` : "Shared lists: chores, packing, household jobs"}</span></span>
+              {owner && <Switch label="Tasks module" checked={h.enabled_modules.includes("todos")} onChange={() => open("modules-todos")} />}</div>
           </div>
         )}
       </section>
@@ -121,7 +121,7 @@ export function Settings() {
       <Stepper label="Servings" value={num} min={1} max={20} onChange={setNum} />
       <Button loading={busy} onClick={() => patch({ default_servings: num })}>Save</Button><Button variant="text" onClick={() => patch({ default_servings: null })}>Use each recipe’s servings</Button></Dialog>}
     {(dialog === "modules" || dialog === "modules-todos") && (() => {
-      const mod = dialog === "modules" ? "meals" : "todos"; const label = mod === "meals" ? "Meals & Groceries" : "To-dos"; const on = h.enabled_modules.includes(mod);
+      const mod = dialog === "modules" ? "meals" : "todos"; const label = mod === "meals" ? "Meals & Groceries" : "Tasks"; const on = h.enabled_modules.includes(mod);
       return <Dialog title={on ? `Turn off ${label}?` : `Turn on ${label}?`} body="This hides or shows the module for everyone. Nothing is deleted." onClose={close}>
         <Button variant={on ? "danger" : "primary"} loading={busy} onClick={() => { const mods: string[] = JSON.parse(h.enabled_modules || "[]"); patch({ enabled_modules: on ? mods.filter((x) => x !== mod) : [...mods, mod] }); }}>{on ? `Turn off ${label}` : `Turn on ${label}`}</Button>
         <Button variant="text" onClick={close}>Cancel</Button></Dialog>;

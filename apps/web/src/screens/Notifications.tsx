@@ -75,14 +75,14 @@ export function Notifications() {
             : on ? "This device will get your reminders." : "Your phone asks for permission the first time."}</span></span>
           {(device === "on" || device === "off") && p.enabled && <Switch label="Notifications on this device" checked={on} onChange={(v) => (busy ? undefined : v ? turnOn() : turnOff())} />}</div>
         {device === "ios-browser" && <Link className="h-btn h-btn--secondary" to="/install" style={{ marginBottom: 12 }}>How to install Haven</Link>}
-        <div className="spread flag"><span><strong>Morning digest · 10:00</strong><br /><span className="muted" style={{ fontSize: 13 }}>One message with today’s to-dos that have no time.</span></span>
+        <div className="spread flag"><span><strong>Morning digest · 10:00</strong><br /><span className="muted" style={{ fontSize: 13 }}>One message with today’s tasks that have no time.</span></span>
           <Switch label="Morning digest" checked={p.digest} onChange={(v) => setPref("digest", v)} /></div>
-        <div className="spread flag"><span><strong>When someone gives you a to-do</strong><br /><span className="muted" style={{ fontSize: 13 }}>“Mira gave you a to-do: Call the plumber”</span></span>
-          <Switch label="When someone gives you a to-do" checked={p.given} onChange={(v) => setPref("given", v)} /></div>
+        <div className="spread flag"><span><strong>When someone gives you a task</strong><br /><span className="muted" style={{ fontSize: 13 }}>“Mira gave you a task: Call the plumber”</span></span>
+          <Switch label="When someone gives you a task" checked={p.given} onChange={(v) => setPref("given", v)} /></div>
       </section>
       {on && <Button variant="secondary" loading={busy} onClick={async () => { const r = await api<{ sent: number }>("/api/push/test", { method: "POST" }).catch(() => ({ sent: -1 })); setMsg(r.sent > 0 ? "Sent. It should arrive in a few seconds." : r.sent === 0 ? "Nothing was sent. Try turning this device off and on again." : "Couldn’t send right now. Try again later."); }}>Send a test notification</Button>}
       {msg && <p role="status" className="muted">{msg}</p>}
-      <p className="muted" style={{ fontSize: 13, margin: 0 }}>To-dos with a time remind you at that time. Ones without an assignee remind everyone who hasn’t muted the list. {p.devices > 0 ? `You get notifications on ${p.devices} device${p.devices === 1 ? "" : "s"}.` : ""}</p>
+      <p className="muted" style={{ fontSize: 13, margin: 0 }}>Tasks with a time remind you at that time. Ones without an assignee remind everyone who hasn’t muted the list. {p.devices > 0 ? `You get notifications on ${p.devices} device${p.devices === 1 ? "" : "s"}.` : ""}</p>
       {me.flags.module_todos_enabled && (lists?.length ?? 0) > 0 && (
         <section className="h-stack" aria-labelledby="nl"><h2 id="nl" className="h-section-title">Lists</h2>
           <div className="h-card" style={{ padding: "4px 16px" }}>{lists!.filter((l) => !l.checklist).map((l) => (

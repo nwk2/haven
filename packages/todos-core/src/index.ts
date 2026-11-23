@@ -57,6 +57,10 @@ export function nextDue(r: Repeat, due: string, today: string): string {
 export type DueState = "overdue" | "today" | "upcoming" | "none";
 export const dueState = (due: string | null | undefined, today: string): DueState => (!due ? "none" : due < today ? "overdue" : due === today ? "today" : "upcoming");
 
+/** Late: due on an earlier day, or today at a time that has passed. Times are "HH:MM", so the string comparison is valid. Fields are unknown because sync rows carry them that way; String() is a no-op for real values. */
+export const isLate = (i: { due_date?: unknown; due_time?: unknown }, today: string, hm: string) =>
+  !!i.due_date && (String(i.due_date) < today || (String(i.due_date) === today && !!i.due_time && String(i.due_time) < hm));
+
 const WD = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const ORD = (n: number) => { const t = n % 100; return t >= 11 && t <= 13 ? `${n}th` : `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`; };
@@ -143,7 +147,7 @@ export function planReminders(p: PlanInput): { due: Reminder[]; nextAt: number |
     for (const [u, its] of per) {
       const late = its.filter((i) => i.due_date! < today).length;
       const names = its.slice(0, 3).map((i) => i.title).join(", ") + (its.length > 3 ? ` and ${its.length - 3} more` : "");
-      due.push({ key, users: [u], title: its.length === 1 ? "1 to-do today" : `${its.length} to-dos today`, body: names + (late ? ` · ${late} overdue` : ""), url: "/m/todos" });
+      due.push({ key, users: [u], title: its.length === 1 ? "1 task today" : `${its.length} tasks today`, body: names + (late ? ` · ${late} overdue` : ""), url: "/m/todos" });
     }
   }
   // Next digest: today's if it's still ahead and something is due by today; otherwise the earliest day

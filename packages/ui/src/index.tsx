@@ -55,13 +55,14 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
 }
 
 /** Focus trap + Escape + return focus (PRD › Accessibility beyond contrast). */
-function useModal(onClose: () => void) {
+function useModal(onClose: () => void, focusFirst = true) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const el = ref.current!;
     const focusables = () => [...el.querySelectorAll<HTMLElement>("button, a[href], input, textarea, select, [tabindex]:not([tabindex='-1'])")].filter((x) => !x.hasAttribute("disabled"));
-    (focusables()[0] ?? el).focus();
+    // A form sheet shouldn't open with its first field focused (ring, and the keyboard on phones).
+    ((focusFirst ? focusables()[0] : null) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       if (e.key !== "Tab") return;
@@ -76,7 +77,7 @@ function useModal(onClose: () => void) {
 }
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useModal(onClose);
+  const ref = useModal(onClose, false);
   const id = useId();
   return (<>
     <div className="h-scrim" onClick={onClose} aria-hidden="true" />

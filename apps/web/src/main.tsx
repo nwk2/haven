@@ -25,7 +25,7 @@ function Todos() {
   const [members, setMembers] = useState<{ id: string; name: string }[] | null>(null);
   useEffect(() => { api<{ members: { id: string; name: string }[] }>("/api/members").then((r) => setMembers(r.members)).catch(() => setMembers([])); }, []);
   if (!me?.household || !db || !sync || !members) return null;
-  if (!me.household.enabled_modules.includes("todos") || me.flags.module_todos_enabled !== true) return <Placeholder title="To-dos is turned off" />;
+  if (!me.household.enabled_modules.includes("todos") || me.flags.module_todos_enabled !== true) return <Placeholder title="Tasks is turned off" />;
   const ctx = { db, sync, user: { id: me.user.id, name: me.user.name, role: me.user.role }, household: me.household, today: todayIn(me.household.timezone), members };
   return <Suspense fallback={null}><TodosModule ctx={ctx} /></Suspense>;
 }

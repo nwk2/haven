@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dateInZone, dueState, nextDue, planReminders, repeatLabel, repeatShort, zonedTimeToUtc, type RItem } from "../src/index";
+import { addDays, dateInZone, dueState, isLate, nextDue, planReminders, repeatLabel, repeatShort, zonedTimeToUtc, type RItem } from "../src/index";
 
 describe("nextDue", () => {
   it("weekly moves a week on from the due date", () => expect(nextDue({ kind: "weekly" }, "2026-11-24", "2026-11-24")).toBe("2026-12-01"));
@@ -31,6 +31,24 @@ describe("labels and state", () => {
     expect(dueState("2026-11-23", "2026-11-23")).toBe("today");
     expect(dueState(null, "2026-11-23")).toBe("none");
   });
+});
+
+describe("isLate", () => {
+  const today = "2026-11-23";
+  const item = (due_date?: string | null, due_time?: string | null) => ({ due_date, due_time });
+  it("due today at a passed time is late", () => expect(isLate(item(today, "09:00"), today, "10:30")).toBe(true));
+  it("due today at exactly the current minute is not late", () => expect(isLate(item(today, "10:30"), today, "10:30")).toBe(false));
+  it("due today at a future time is not late", () => expect(isLate(item(today, "14:00"), today, "10:30")).toBe(false));
+  it("due yesterday is late, with or without a time", () => {
+    expect(isLate(item("2026-11-22", "23:59"), today, "10:30")).toBe(true);
+    expect(isLate(item("2026-11-22"), today, "10:30")).toBe(true);
+  });
+  it("due tomorrow is not late", () => expect(isLate(item("2026-11-24", "00:00"), today, "10:30")).toBe(false));
+  it("no due date is not late", () => {
+    expect(isLate(item(null, "09:00"), today, "10:30")).toBe(false);
+    expect(isLate(item(undefined, "09:00"), today, "10:30")).toBe(false);
+  });
+  it("due today with no time is not late", () => expect(isLate(item(today), today, "23:59")).toBe(false));
 });
 
 describe("time zones", () => {
@@ -81,8 +99,8 @@ describe("planReminders", () => {
     expect(early.due).toEqual([]); expect(early.nextAt).toBe(at("2026-11-23", "10:00"));
     const r = planReminders({ ...base, items, now: at("2026-11-23", "10:00") });
     const mira = r.due.find((x) => x.users[0] === "mira")!;
-    expect(mira.title).toBe("2 to-dos today"); expect(mira.body).toBe("Water the plants, Change the bedsheets · 1 overdue");
-    expect(r.due.find((x) => x.users[0] === "jon")!.title).toBe("1 to-do today");
+    expect(mira.title).toBe("2 tasks today"); expect(mira.body).toBe("Water the plants, Change the bedsheets · 1 overdue");
+    expect(r.due.find((x) => x.users[0] === "jon")!.title).toBe("1 task today");
     expect(new Set(r.due.map((x) => x.key))).toEqual(new Set(["digest|2026-11-23"]));
   });
   it("a day-only item next week schedules the digest for that day", () => {

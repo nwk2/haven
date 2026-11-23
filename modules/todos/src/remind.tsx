@@ -57,7 +57,7 @@ export function RemindersCard({ onOn }: { onOn: () => void }) {
       <h2 id="remind-h">Get reminders on this phone</h2>
       {state === "install"
         ? <p>On iPhone, reminders work in the installed Haven app. Add Haven to your Home Screen, open it from there, then turn them on.</p>
-        : <p>Haven can tell you when a to-do is due, and send a 10:00 digest of the day’s to-dos.</p>}
+        : <p>Haven can tell you when a task is due, and send a 10:00 digest of the day’s tasks.</p>}
       {err && <p role="alert" className="td-late" style={{ fontWeight: 600 }}>That didn’t work. Try again, or use Settings › Notifications.</p>}
       <div className="td-remind__actions">
         {state === "install" ? <Link className="h-btn h-btn--primary" to="/install">How to install</Link> : <Button loading={busy} onClick={turnOn}>Turn on</Button>}

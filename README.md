@@ -41,14 +41,14 @@ npm run dev:admin                         # admin on http://localhost:8788
 4. **Admin Worker**: Workers & Pages › Create › connect this repo again; build command `npm run build`, deploy command `npx wrangler deploy -c wrangler.admin.toml`. Set its secrets in the dashboard: `GOOGLE_CLIENT_SECRET` (same value as the app), `ADMIN_EMAIL`, `ADMIN_SETUP_CODE` (long random code). Optional: `CF_API_TOKEN` (Account Analytics: Read) and `CF_ACCOUNT_ID` for usage figures.
 5. Open https://haven-admin.wk-io.workers.dev, sign in with Google, enter the setup code, create a passkey; add a second passkey from Account.
 
-## To-dos and notifications (one time)
+## Tasks and notifications (one time)
 
 1. **Keys**: `npm run vapid` (Haven gets its own pair; don't reuse another app's). Put `VAPID_PUBLIC_KEY` under `[vars]` in `wrangler.toml` and commit it (public by design). Add `VAPID_PRIVATE_KEY` as a **runtime** secret on the `haven` Worker: dashboard › Workers & Pages › haven › Settings › Variables and secrets › Add › Secret. **Not** "Secrets used during build": the running Worker can't see those, and notifications would silently never send. The subject defaults to `https://haven.wk-io.workers.dev` (no personal email); set `VAPID_SUBJECT` only if Haven moves to your own domain. Without the keys everything works except notifications, and Settings › Notifications says they aren't set up.
-2. **Migrate BEFORE the deploy**: `npm run db:migrate` (0008: To-dos tables, push subscriptions). Apply it before pushing — the new code's sync pull reads the new tables and 500s until the migration lands. Old code tolerates the new tables, so migrating first is safe.
-3. **Admin › Switches**: turn on "To-dos module". Then, as the Owner: Settings › Modules › To-dos.
+2. **Migrate BEFORE the deploy**: `npm run db:migrate` (0008: Tasks tables, push subscriptions). Apply it before pushing — the new code's sync pull reads the new tables and 500s until the migration lands. Old code tolerates the new tables, so migrating first is safe.
+3. **Admin › Switches**: turn on "Tasks module". Then, as the Owner: Settings › Modules › Tasks.
 4. **Each phone**: Settings › Notifications › On this device, then "Send a test notification". On iPhone this works in the installed app only (iOS 16.4 or later).
 
-Reminders: a to-do with a time reminds its assignee (or everyone, if unassigned) at that time; day-only to-dos go into one 10:00 digest per person. Each household's sync object sends them from an alarm; nothing polls.
+Reminders: a task with a time reminds its assignee (or everyone, if unassigned) at that time; day-only tasks go into one 10:00 digest per person. Each household's sync object sends them from an alarm; nothing polls.
 
 ## Switched off for now
 

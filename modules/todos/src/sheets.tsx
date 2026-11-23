@@ -19,37 +19,40 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
   const tomorrow = addDays(today, 1);
   const otherDay = !!f.due_date && f.due_date !== today && f.due_date !== tomorrow;
   // No date clears the time and repeat too (both need a day).
+  // "Sat 28" fits a segment; the full date is in its accessible name.
+  const shortDay = (d: string) => { const [y, mo, day] = d.split("-").map(Number); return new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", timeZone: "UTC" }).format(Date.UTC(y, mo - 1, day)); };
   const setDay = (d: string | null) => save(d ? { due_date: d } : { due_date: null, due_time: null, repeat: null });
   const setRepeat = (k: string) => save({ repeat: k ? ({ kind: k as RepeatKind, ...(k === "after" ? { n: f.repeat?.n ?? 3 } : {}) } as Repeat) : null });
 
   return (
-    <Sheet title={list.checklist ? "Item" : "To-do"} onClose={onClose}>
+    <Sheet title={list.checklist ? "Item" : "Task"} onClose={onClose}>
       <div className="h-stack">
         <Field label="Title" value={f.title} maxLength={200} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => f.title.trim() && f.title !== item.title && save({ title: f.title.trim() })} />
         {!list.checklist && (<>
-          {/* When (Nov 2026 polish): chips instead of blank date boxes; Time and Repeat appear once there's a day. */}
-          <div><span className="h-field__label" id="due-l">Due</span>
-            <div className="td-chips" role="radiogroup" aria-labelledby="due-l">
-              <button type="button" role="radio" className="td-chip" aria-checked={!f.due_date} onClick={() => setDay(null)}>No date</button>
-              <button type="button" role="radio" className="td-chip" aria-checked={f.due_date === today} onClick={() => setDay(today)}>Today</button>
-              <button type="button" role="radio" className="td-chip" aria-checked={f.due_date === tomorrow} onClick={() => setDay(tomorrow)}>Tomorrow</button>
-              <label className="td-chip td-chip--pick" role="radio" aria-checked={otherDay}>
-                {otherDay ? dayLabel(f.due_date!, today) : "Pick a date…"}
-                <input type="date" aria-label="Pick a date" value={f.due_date ?? ""} onChange={(e) => setDay(e.target.value || null)} />
+          {/* Due and Time as the app's segmented control (Nov 2026 polish); Time and Repeat appear once there's a day.
+              "Pick…" and "Set time" are the phone's own pickers, laid invisibly over the segment. */}
+          <div className="td-field"><span className="h-field__label" id="due-l">Due</span>
+            <div className="h-seg td-seg" role="radiogroup" aria-labelledby="due-l">
+              <button type="button" role="radio" aria-checked={!f.due_date} onClick={() => setDay(null)}>No date</button>
+              <button type="button" role="radio" aria-checked={f.due_date === today} onClick={() => setDay(today)}>Today</button>
+              <button type="button" role="radio" aria-checked={f.due_date === tomorrow} onClick={() => setDay(tomorrow)}>Tomorrow</button>
+              <label className="td-seg__pick" role="radio" aria-checked={otherDay}>
+                <span>{otherDay ? shortDay(f.due_date!) : "Pick…"}</span>
+                <input type="date" aria-label={otherDay ? `Due ${dayLabel(f.due_date!, today)}, change date` : "Pick a date"} value={f.due_date ?? ""} onChange={(e) => setDay(e.target.value || null)} />
               </label>
             </div>
           </div>
           {f.due_date && (<>
-            <div><span className="h-field__label" id="time-l">Time</span>
-              <div className="td-chips" role="radiogroup" aria-labelledby="time-l">
-                <button type="button" role="radio" className="td-chip" aria-checked={!f.due_time} onClick={() => save({ due_time: null })}>Any time</button>
-                <label className="td-chip td-chip--pick" role="radio" aria-checked={!!f.due_time}>
-                  {f.due_time ? timeLabel(f.due_time) : "Set a time…"}
-                  <input type="time" aria-label="Set a time" value={f.due_time ?? ""} onChange={(e) => save({ due_time: e.target.value || null })} />
+            <div className="td-field"><span className="h-field__label" id="time-l">Time</span>
+              <div className="h-seg td-seg" role="radiogroup" aria-labelledby="time-l">
+                <button type="button" role="radio" aria-checked={!f.due_time} onClick={() => save({ due_time: null })}>Any time</button>
+                <label className="td-seg__pick" role="radio" aria-checked={!!f.due_time}>
+                  <span>{f.due_time ? timeLabel(f.due_time) : "Set time"}</span>
+                  <input type="time" aria-label={f.due_time ? `At ${timeLabel(f.due_time)}, change time` : "Set a time"} value={f.due_time ?? ""} onChange={(e) => save({ due_time: e.target.value || null })} />
                 </label>
               </div>
             </div>
-            <label className="h-field"><span className="h-field__label">Repeat</span>
+            <label className="td-field"><span className="h-field__label">Repeat</span>
               <select className="h-input" value={repeatValue} onChange={(e) => setRepeat(e.target.value)}>
                 <option value="">Doesn’t repeat</option>
                 {KINDS.map((k) => <option key={k} value={k}>{repeatLabel({ kind: k, n: f.repeat?.n ?? 3 }, f.due_date)}</option>)}
@@ -57,13 +60,13 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
             </label>
           </>)}
           {f.repeat?.kind === "after" && (
-            <label className="h-field"><span className="h-field__label">Days after it’s done</span>
+            <label className="td-field"><span className="h-field__label">Days after it’s done</span>
               <select className="h-input" value={f.repeat.n ?? 3} onChange={(e) => save({ repeat: { kind: "after", n: Number(e.target.value) } })}>
                 {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
           )}
-          <div><span className="h-field__label">Who</span>
+          <div className="td-field"><span className="h-field__label">Who</span>
             <div className="td-people" role="radiogroup" aria-label="Who">
               <button type="button" role="radio" aria-checked={!f.assignee_id} onClick={() => save({ assignee_id: null })}>Anyone</button>
               {members.map((p) => (

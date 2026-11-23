@@ -3,7 +3,7 @@ import { Button, Icon } from "@haven/ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCtx } from "./ctx";
-import { dayLabel, firstName, newId, timeLabel, useMutate, useTodos, visibleDone, type TData, type TItem, type TList } from "./data";
+import { dayLabel, firstName, isLate, newId, timeLabel, useMutate, useNowHM, useTodos, visibleDone, type TData, type TItem, type TList } from "./data";
 import { ItemSheet, ListMenu, NewListSheet } from "./sheets";
 import { RemindersCard } from "./remind";
 
@@ -14,8 +14,9 @@ export function Header({ title, back, right }: { title: string; back?: string; r
   return (
     <header className="mod-header">
       <div className="h-modhead">
-        <Link to={back ?? "/"} className="h-icon-btn" aria-label={back ? "Back to To-dos" : `Back to ${household.name}`} style={{ marginLeft: -10 }}>{Icon.back}</Link>
-        <div style={{ flex: 1, minWidth: 0 }}><div className="h-modhead__eyebrow">To-dos</div><h1>{title}</h1></div>
+        <Link to={back ?? "/"} className="h-icon-btn" aria-label={back ? "Back to Tasks" : `Back to ${household.name}`} style={{ marginLeft: -10 }}>{Icon.back}</Link>
+        {/* The module name only inside a list ("Tasks › Chores"); on the Tasks home it would repeat the title. */}
+        <div style={{ flex: 1, minWidth: 0 }}>{back && <div className="h-modhead__eyebrow">Tasks</div>}<h1>{title}</h1></div>
         {right}
       </div>
     </header>
@@ -58,7 +59,8 @@ function Avatar({ id }: { id?: string | null }) {
 }
 
 export function ItemRow({ i, list, onTick, onOpen, showList }: { i: TItem; list: TList; onTick: () => void; onOpen: () => void; showList?: boolean }) {
-  const { today, members } = useCtx();
+  const { today, members, household } = useCtx();
+  const hm = useNowHM(household.timezone);
   const checked = list.checklist ? !!i.checked : !!i.done_at;
   const meta: ReactNode[] = [];
   if (!list.checklist) {
@@ -66,7 +68,8 @@ export function ItemRow({ i, list, onTick, onOpen, showList }: { i: TItem; list:
     else {
       const st = dueState(i.due_date, today);
       if (st === "overdue") { const n = Math.round((Date.parse(today) - Date.parse(i.due_date!)) / 86_400_000); meta.push(<span key="due" className="td-late">Overdue · {n} day{n === 1 ? "" : "s"}</span>); }
-      else if (i.due_date) meta.push(<span key="due" className={st === "today" ? "td-today" : undefined}>{dayLabel(i.due_date, today)}{i.due_time ? ` · ${timeLabel(i.due_time)}` : ""}</span>);
+      // Today at a time that has passed reads as late (red), like an earlier day.
+      else if (i.due_date) meta.push(<span key="due" className={isLate(i, today, hm) ? "td-late" : st === "today" ? "td-today" : undefined}>{dayLabel(i.due_date, today)}{i.due_time ? ` · ${timeLabel(i.due_time)}` : ""}</span>);
       if (i.repeat) meta.push(<span key="r">↻ {repeatShort(i.repeat)}</span>);
     }
     if (showList) meta.push(<span key="l">{list.emoji ? `${list.emoji} ` : ""}{list.name}</span>);
@@ -94,7 +97,7 @@ export function Home() {
   const [newList, setNewList] = useState(false);
   const [undo, setUndo] = useState<Undo | null>(null);
   const tick = useTick(setUndo);
-  if (!d) return <><Header title="To-dos" /><main className="page"><div className="h-skeleton" style={{ height: 200 }} /></main></>;
+  if (!d) return <><Header title="Tasks" /><main className="page"><div className="h-skeleton" style={{ height: 200 }} /></main></>;
   const listOf = (id: string) => d.lists.find((l) => l.id === id)!;
   const todayItems = d.items.filter((i) => !listOf(i.list_id).checklist && !i.done_at && i.due_date && i.due_date <= today)
     .sort((a, b) => Number(b.assignee_id === user.id) - Number(a.assignee_id === user.id) || a.due_date!.localeCompare(b.due_date!) || (a.due_time ?? "99").localeCompare(b.due_time ?? "99"));
@@ -106,11 +109,11 @@ export function Home() {
   }
 
   return (<>
-    <Header title="To-dos" />
+    <Header title="Tasks" />
     <main className="page h-stack mod-main">
       {d.lists.length > 0 && <RemindersCard onOn={() => setUndo({ text: "Reminders are on for this phone" })} />}
       <section aria-labelledby="today-h">
-        <div className="td-sec"><h2 id="today-h">Today</h2><span>{todayItems.length ? `${todayItems.length} to do` : ""}</span></div>
+        <div className="td-sec"><h2 id="today-h">Today</h2><span>{todayItems.length ? `${todayItems.length} due` : ""}</span></div>
         {todayItems.length
           ? <div className="h-card td-card">{todayItems.map((i) => <ItemRow key={i.id} i={i} list={listOf(i.list_id)} showList onTick={() => tick(i, listOf(i.list_id))} onOpen={() => setOpen(i)} />)}</div>
           : <div className="h-card td-empty">{d.lists.length ? "Nothing due today." : "Nothing here yet."}</div>}
@@ -138,7 +141,8 @@ export function Home() {
 }
 
 function ListRow({ l, d }: { l: TList; d: TData }) {
-  const { today } = useCtx();
+  const { today, household } = useCtx();
+  const hm = useNowHM(household.timezone);
   const its = d.items.filter((i) => i.list_id === l.id);
   let sub: string, badge: ReactNode = null;
   if (l.checklist) { const c = its.filter((i) => i.checked).length; sub = "Reusable checklist"; badge = <span className="td-badge">{c} of {its.length}</span>; }
@@ -146,7 +150,7 @@ function ListRow({ l, d }: { l: TList; d: TData }) {
     const open = its.filter((i) => !i.done_at);
     const due = open.filter((i) => i.due_date && i.due_date <= today);
     sub = `${open.length} open`;
-    if (due.length) badge = <span className={`td-badge${due.some((i) => i.due_date! < today) ? " td-badge--late" : ""}`}>{due.length} due</span>;
+    if (due.length) badge = <span className={`td-badge${due.some((i) => isLate(i, today, hm)) ? " td-badge--late" : ""}`}>{due.length} due</span>;
   }
   return (
     <Link to={`/m/todos/list/${l.id}`} className="td-listrow">
@@ -172,7 +176,7 @@ export function ListPage() {
   const tick = useTick(setUndo);
   if (!d) return <><Header title="" back="/m/todos" /><main className="page"><div className="h-skeleton" style={{ height: 200 }} /></main></>;
   const l = d.lists.find((x) => x.id === id);
-  if (!l) return <><Header title="List not found" back="/m/todos" /><main className="page"><p className="muted">This list was deleted. <Link to="/m/todos">Back to To-dos</Link></p></main></>;
+  if (!l) return <><Header title="List not found" back="/m/todos" /><main className="page"><p className="muted">This list was deleted. <Link to="/m/todos">Back to Tasks</Link></p></main></>;
   const its = d.items.filter((i) => i.list_id === l.id);
   const byPos = (a: TItem, b: TItem) => (a.position ?? 0) - (b.position ?? 0);
 
@@ -196,7 +200,7 @@ export function ListPage() {
     const openItems = its.filter((i) => !i.done_at).sort((a, b) => (a.due_date ? 0 : 1) - (b.due_date ? 0 : 1) || (a.due_date ?? "").localeCompare(b.due_date ?? "") || (a.due_time ?? "99").localeCompare(b.due_time ?? "99") || byPos(a, b));
     const done = its.filter((i) => visibleDone(i)).sort((a, b) => (b.done_at ?? 0) - (a.done_at ?? 0));
     body = (<>
-      {openItems.length ? <div className="h-card td-card">{openItems.map((i) => <ItemRow key={i.id} i={i} list={l} onTick={() => tick(i, l)} onOpen={() => setOpen(i)} />)}</div> : <div className="h-card td-empty">{done.length ? "All done. Nice." : "Nothing here yet. Add a to-do below."}</div>}
+      {openItems.length ? <div className="h-card td-card">{openItems.map((i) => <ItemRow key={i.id} i={i} list={l} onTick={() => tick(i, l)} onOpen={() => setOpen(i)} />)}</div> : <div className="h-card td-empty">{done.length ? "All done. Nice." : "Nothing here yet. Add a task below."}</div>}
       {done.length > 0 && (
         <div>
           <div className="td-donehead">
@@ -214,7 +218,7 @@ export function ListPage() {
     <main className="page h-stack mod-main">
       {body}
       <form className="td-add" onSubmit={(e) => { e.preventDefault(); void add(); }}>
-        <input className="h-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={l.checklist ? "Add an item" : "Add a to-do"} aria-label={l.checklist ? "New item" : "New to-do"} maxLength={200} />
+        <input className="h-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={l.checklist ? "Add an item" : "Add a task"} aria-label={l.checklist ? "New item" : "New task"} maxLength={200} />
         <Button type="submit" disabled={!text.trim()}>Add</Button>
       </form>
     </main>

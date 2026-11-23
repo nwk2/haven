@@ -72,5 +72,5 @@ export async function notifyGiven(env: Env, householdId: string, itemId: string,
   ]);
   const it = item.results[0] as { title: string; list_id: string } | undefined; if (!it) return;
   const name = ((actor.results[0] as { name?: string } | undefined)?.name ?? "Someone").split(" ")[0];
-  await sendTo(env, [assigneeId], "given", { title: `${name} gave you a to-do`, body: it.title, url: `/m/todos/list/${it.list_id}`, tag: `given|${itemId}` });
+  await sendTo(env, [assigneeId], "given", { title: `${name} gave you a task`, body: it.title, url: `/m/todos/list/${it.list_id}`, tag: `given|${itemId}` });
 }

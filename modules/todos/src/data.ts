@@ -1,5 +1,6 @@
-import { addDays, parseRepeat, type Repeat } from "@haven/todos-core";
+import { addDays, isLate, parseRepeat, type Repeat } from "@haven/todos-core";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useEffect, useState } from "react";
 import { useCtx } from "./ctx";
 
 export interface TList { id: string; name: string; emoji?: string | null; position: number; checklist: number; created_by?: string | null; deleted?: number }
@@ -47,3 +48,13 @@ export const dayLabel = (d: string, today: string) => (d === today ? "Today" : d
 export const timeLabel = (t: string) => { const [h, m] = t.split(":").map(Number); return fmtTime.format(Date.UTC(2000, 0, 1, h, m)); };
 export const whenLabel = (ms: number) => new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" }).format(ms);
 export const firstName = (n?: string | null) => (n ?? "Someone").split(" ")[0];
+
+/** "HH:MM" now in the household's time zone, refreshed every 30 seconds (so a timed task turns late on time). */
+export function useNowHM(tz: string) {
+  const read = () => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(Date.now());
+  const [hm, setHm] = useState(read);
+  useEffect(() => { const t = setInterval(() => setHm(read()), 30_000); return () => clearInterval(t); }, [tz]);
+  return hm;
+}
+/** Late: due on an earlier day, or today at a time that has passed — now in @haven/todos-core, shared with the console tile. */
+export { isLate };

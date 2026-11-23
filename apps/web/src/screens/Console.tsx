@@ -1,4 +1,6 @@
 import { Icon } from "@haven/ui";
+import { isLate } from "@haven/todos-core";
+import { useNowHM } from "@haven/module-todos";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "react-router-dom";
 import { fmtDay, todayIn } from "../date";
@@ -11,21 +13,15 @@ export function Console() {
   const today = h ? todayIn(h.timezone) : "";
   const data = useLiveQuery(async () => {
     if (!db) return null;
-    const [recipes, planned, trips, activity, tdLists, tdItems] = await Promise.all([
+    const [recipes, planned, trips, activity] = await Promise.all([
       db.meals_recipes.filter((r) => !r.deleted).count(),
       db.meals_planned.filter((m) => !m.deleted && m.status === "planned").toArray(),
       db.meals_trips.filter((t) => !t.deleted && t.status !== "finished" && String(t.date) >= today).sortBy("date"),
       db.activity.orderBy("at").reverse().limit(5).toArray(),
-      db.todos_lists.filter((l) => !l.deleted && !l.checklist).toArray(),
-      db.todos_items.filter((i) => !i.deleted && !i.done_at && !!i.due_date && String(i.due_date) <= today).toArray(),
     ]);
-    const tdLive = new Set(tdLists.map((l) => l.id));
-    const tdDue = tdItems.filter((i) => tdLive.has(String(i.list_id)));
-    // "due" is due today only; overdue is counted separately (tdItems already covers due_date <= today).
-    const todos = { due: tdDue.filter((i) => String(i.due_date) === today).length, overdue: tdDue.filter((i) => String(i.due_date) < today).length };
     const tonight = planned.find((m) => m.date === today && m.slot === "dinner");
     const tonightTitle = tonight ? (await db.meals_recipes.get(String(tonight.recipe_id)))?.title : undefined;
-    return { recipes, planned: planned.length, nextTrip: trips[0], activity, tonightTitle: tonightTitle as string | undefined, todos };
+    return { recipes, planned: planned.length, nextTrip: trips[0], activity, tonightTitle: tonightTitle as string | undefined };
   }, [db, today]);
 
   if (!h || !data) return null;
@@ -69,13 +65,8 @@ export function Console() {
           {Icon.chevron}
         </Link>}
         {!me!.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}
-        {me!.flags.module_todos_enabled && h.enabled_modules.includes("todos") && <Link to="/m/todos" className="h-card tile">
-          <span className="tile__icon" aria-hidden="true">{Icon.list}</span>
-          <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>To-dos</span>
-            <span className="h-row__sub">{(data.todos.due || data.todos.overdue) ? `${data.todos.due ? `${data.todos.due} due today` : ""}${data.todos.due && data.todos.overdue ? " · " : ""}${data.todos.overdue ? `${data.todos.overdue} overdue` : ""}` : "Nothing due today"}</span></span>
-          {Icon.chevron}
-        </Link>}
-        {me!.flags.show_planned_modules && <div className="planned">{[...(me!.flags.module_todos_enabled ? [] : ["To-dos"]), "Bills", "Calendar"].map((n) => <div key={n} className="planned__tile" aria-disabled="true"><strong>{n}</strong><span>Planned</span></div>)}</div>}
+        {me!.flags.module_todos_enabled && h.enabled_modules.includes("todos") && <TasksTile />}
+        {me!.flags.show_planned_modules && <div className="planned">{[...(me!.flags.module_todos_enabled ? [] : ["Tasks"]), "Bills", "Calendar"].map((n) => <div key={n} className="planned__tile" aria-disabled="true"><strong>{n}</strong><span>Planned</span></div>)}</div>}
       </section>
 
       {data.activity.length > 0 && (
@@ -85,6 +76,41 @@ export function Console() {
         </section>
       )}
     </main>
+  );
+}
+
+/** The Tasks tile refreshes its own counts every 30 seconds (same rhythm as the Tasks screens), so a task whose time passes turns overdue without a reload — and only the tile re-renders, not the whole console. */
+function TasksTile() {
+  const { me, db } = useSession();
+  const h = me?.household;
+  const today = h ? todayIn(h.timezone) : "";
+  const hm = useNowHM(h?.timezone ?? "UTC");
+  const counts = useLiveQuery(async () => {
+    if (!db || !h) return null;
+    const [tdLists, tdItems] = await Promise.all([
+      db.todos_lists.filter((l) => !l.deleted && !l.checklist).toArray(),
+      db.todos_items.filter((i) => !i.deleted && !i.done_at && !!i.due_date && String(i.due_date) <= today).toArray(),
+    ]);
+    const tdLive = new Set(tdLists.map((l) => l.id));
+    // Narrow the sync rows (their fields are unknown) to the shape isLate takes.
+    const tdDue = tdItems
+      .filter((i) => tdLive.has(String(i.list_id)))
+      .map((i) => ({ due_date: i.due_date, due_time: i.due_time }));
+    // "due" is due today only; overdue is counted separately (tdItems already covers due_date <= today).
+    // A task due today at a time that has passed counts as overdue, not "due today".
+    return {
+      due: tdDue.filter((i) => String(i.due_date) === today && !isLate(i, today, hm)).length,
+      overdue: tdDue.filter((i) => isLate(i, today, hm)).length,
+    };
+  }, [db, today, hm]);
+  if (!h || !counts) return null;
+  return (
+    <Link to="/m/todos" className="h-card tile">
+      <span className="tile__icon" aria-hidden="true">{Icon.list}</span>
+      <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>Tasks</span>
+        <span className="h-row__sub">{(counts.due || counts.overdue) ? `${counts.due ? `${counts.due} due today` : ""}${counts.due && counts.overdue ? " · " : ""}${counts.overdue ? `${counts.overdue} overdue` : ""}` : "Nothing due today"}</span></span>
+      {Icon.chevron}
+    </Link>
   );
 }
 
