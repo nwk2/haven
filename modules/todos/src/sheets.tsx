@@ -89,6 +89,7 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
           <Button variant="secondary" block onClick={() => { const next = nextDue(f.repeat!, f.due_date!, today); const was = f.due_date; save({ due_date: next }); setUndo({ text: `Skipped. Next: ${dayLabel(next, today)}`, undo: () => void m.item(item.id, { due_date: was }) }); onClose(); }}>Skip this time</Button>
         )}
         <Button variant="secondary" className="td-danger" block onClick={() => { void m.item(item.id, { deleted: 1 }); setUndo({ text: "Deleted", undo: () => void m.item(item.id, { deleted: 0 }) }); onClose(); }}>Delete</Button>
+        <Button variant="secondary" block onClick={onClose}>Done</Button>
       </div>
     </Sheet>
   );
@@ -110,6 +111,7 @@ export function ListMenu({ list, items, muted, onClose, setUndo }: { list: TList
   );
   return (
     <Sheet title={`${list.emoji ? `${list.emoji} ` : ""}${list.name}`} onClose={onClose}>
+      <div className="h-stack">
       <div className="h-card td-menu">
         <button type="button" className="td-menu__row" onClick={() => setRename(list.name)}>Rename</button>
         <button type="button" className="td-menu__row" onClick={async () => {
@@ -123,6 +125,8 @@ export function ListMenu({ list, items, muted, onClose, setUndo }: { list: TList
         <div className="td-menu__row"><span>Remind me<small>{muted ? "Muted for you" : "Reminders on for you"}</small></span>
           <Switch label="Remind me about this list" checked={!muted} onChange={(v) => void m.mute(list.id, !v)} /></div>
         <button type="button" className="td-menu__row td-danger" onClick={() => { void m.list(list.id, { deleted: 1 }); onClose(); nav("/m/todos"); setUndo({ text: "List deleted", undo: () => void m.list(list.id, { deleted: 0 }) }); }}>Delete list</button>
+      </div>
+      <Button variant="secondary" block onClick={onClose}>Done</Button>
       </div>
     </Sheet>
   );

@@ -152,6 +152,7 @@ function ItemSheet({ d, trip, row, onClose }: { d: MealsData; trip: TripRow; row
         {per.map((p) => <Link key={p.id} className="h-row" to={`/m/meals/recipes/${d.meals.find((x) => x.id === p.id)?.recipe_id}`}><span className="h-row__main"><span className="h-row__title">{p.title}</span><span className="h-row__sub">{p.when}</span></span><strong>{p.qty}</strong></Link>)}
         <Button variant="secondary" block onClick={async () => { await m.item(trip.id, row.line.key, { have_it: 1, checked: 0 }); onClose(); }}>Have it — skip for this run</Button>
         <Button variant="secondary" block onClick={async () => { await m.item(trip.id, row.line.key, { unavailable: row.state.kind === "unavailable" ? 0 : 1, checked: 0 }); onClose(); }}>{row.state.kind === "unavailable" ? "Found it after all" : "Couldn’t get it"}</Button>
+        <Button variant="secondary" block onClick={onClose}>Done</Button>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>Amounts come from recipes. To change them, edit the recipe or the meal’s servings.</p>
       </div>
     </Sheet>

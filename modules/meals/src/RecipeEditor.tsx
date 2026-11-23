@@ -223,7 +223,12 @@ function GroupDialog({ onClose, onAdd }: { onClose: () => void; onAdd: (name: st
 }
 
 export function UndoToast({ text, onUndo, onDone }: { text: string; onUndo: () => void; onDone: () => void }) {
-  useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [onDone]);
+  // The timer keys on the toast's text, not on the onDone identity: every call site passes a fresh
+  // inline arrow, so depending on onDone reset the 6s timer on every parent re-render and the
+  // toast never dismissed while sync kept re-rendering. The ref always calls the latest onDone.
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  useEffect(() => { const t = setTimeout(() => doneRef.current(), 6000); return () => clearTimeout(t); }, [text]);
   return <div className="h-toast" role="status" style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><span>{text}</span><Button variant="secondary" onClick={onUndo}>Undo</Button></div>;
 }
 

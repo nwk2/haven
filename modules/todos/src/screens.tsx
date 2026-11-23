@@ -1,6 +1,6 @@
 import { dueState, nextDue, repeatShort } from "@haven/todos-core";
 import { Button, Icon } from "@haven/ui";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCtx } from "./ctx";
 import { dayLabel, firstName, isLate, newId, timeLabel, useMutate, useNowHM, useTodos, visibleDone, type TData, type TItem, type TList } from "./data";
@@ -25,7 +25,12 @@ export function Header({ title, back, right }: { title: string; back?: string; r
 
 export interface Undo { text: string; undo?: () => void }
 export function Toast({ t, onDone }: { t: Undo; onDone: () => void }) {
-  useEffect(() => { const x = setTimeout(onDone, 5000); return () => clearTimeout(x); }, [t, onDone]);
+  // The timer keys on the toast itself, not on the onDone identity: every call site passes a fresh
+  // inline arrow, so depending on onDone reset the 5s timer on every parent re-render and the
+  // toast never dismissed while sync kept re-rendering. The ref always calls the latest onDone.
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  useEffect(() => { const x = setTimeout(() => doneRef.current(), 5000); return () => clearTimeout(x); }, [t]);
   return <div className={`h-toast h-toast--notab${t.undo ? " h-toast--row" : ""}`} role="status"><span>{t.text}</span>{t.undo && <button type="button" className="h-toast__action" onClick={() => { t.undo!(); onDone(); }}>Undo</button>}</div>;
 }
 

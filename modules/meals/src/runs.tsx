@@ -197,6 +197,7 @@ export function AssignSheet({ data, meal, onNewRun, onClose, onUndo }: { data: M
           <span className="h-row__main"><span className="h-row__title">New grocery run…</span><span className="h-row__sub">Pick a day on or before {fmt(meal.date)}</span></span>
         </button>
         {current && current.status !== "finished" && <Button variant="danger" block onClick={() => move(null)}>Take off the {runName(data, current)} run</Button>}
+        <Button variant="secondary" block onClick={onClose}>Done</Button>
       </div>
     </Sheet>
   );
@@ -227,6 +228,7 @@ export function RunSheet({ data, run, onEdit, onClose, onUndo }: { data: MealsDa
         <Link className="h-btn h-btn--primary h-btn--block" to={`/m/meals/lists/${run.id}`}>Open list</Link>
         <Button variant="secondary" block onClick={onEdit}>Edit day, name or meals</Button>
         <Button variant="danger" block onClick={() => (data.items.some((i) => i.trip_id === run.id && i.checked) ? setConfirm(true) : cancel())}>Cancel this run</Button>
+        <Button variant="secondary" block onClick={onClose}>Done</Button>
       </div>
       {confirm && (
         <Dialog title={`Cancel the ${runName(data, run)} run?`} body="Some items on its list are already bought and stay recorded. Its meals go back to “No grocery run yet”." onClose={() => setConfirm(false)}>
