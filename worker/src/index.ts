@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { sendTo, vapidOf } from "./notify";
 import { finishGoogle, startGoogle } from "./auth/google";
 import { clearCookie, createSession, readSession, type SessionUser } from "./auth/session";
 import { newId, randomToken, sha256 } from "./crypto";
@@ -71,6 +72,43 @@ app.get("/api/me", async (c) => {
      ORDER BY a.starts_at DESC LIMIT 20`,
   ).bind(now, now + 86_400_000, u.id).all()).results;
   return c.json({ features: { photos: !!c.env.PHOTOS }, flags, announcements, user: { ...u, ...prefs, role }, household, deletedHousehold, unreadReplies: unread?.n ?? 0, protocol: Number(c.env.PROTOCOL_VERSION) });
+});
+
+// ── Notifications (PRD › To-dos plan › Notifications) ──
+// Settings › Notifications: whether push is set up, the public key a device subscribes with, and choices.
+app.get("/api/notifications", async (c) => {
+  const u = c.get("user");
+  const p = await c.env.DB.prepare("SELECT digest, given FROM notify_prefs WHERE user_id = ?").bind(u.id).first<{ digest: number; given: number }>();
+  const devices = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?").bind(u.id).first<{ n: number }>();
+  return c.json({ enabled: !!vapidOf(c.env), publicKey: c.env.VAPID_PUBLIC_KEY ?? null, digest: p?.digest !== 0, given: p?.given !== 0, devices: devices?.n ?? 0 });
+});
+app.put("/api/notifications", async (c) => {
+  const b = await c.req.json<{ digest?: boolean; given?: boolean }>();
+  const u = c.get("user");
+  const cur = await c.env.DB.prepare("SELECT digest, given FROM notify_prefs WHERE user_id = ?").bind(u.id).first<{ digest: number; given: number }>();
+  const digest = b.digest ?? (cur?.digest !== 0), given = b.given ?? (cur?.given !== 0);
+  await c.env.DB.prepare("INSERT INTO notify_prefs (user_id, digest, given) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET digest = excluded.digest, given = excluded.given").bind(u.id, digest ? 1 : 0, given ? 1 : 0).run();
+  return c.json({ ok: true });
+});
+// This device allowed notifications (or its subscription changed).
+app.post("/api/push/subscribe", async (c) => {
+  const b = await c.req.json<{ endpoint?: string; keys?: { p256dh?: string; auth?: string } }>();
+  if (!b.endpoint?.startsWith("https://") || !b.keys?.p256dh || !b.keys?.auth || b.endpoint.length > 1000) return c.json({ error: "bad_request" }, 400);
+  await c.env.DB.prepare("INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth")
+    .bind(b.endpoint, c.get("user").id, b.keys.p256dh, b.keys.auth, Date.now()).run();
+  return c.json({ ok: true });
+});
+app.delete("/api/push/subscribe", async (c) => {
+  const b = await c.req.json<{ endpoint?: string }>().catch(() => ({} as { endpoint?: string }));
+  await c.env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?").bind(b.endpoint ?? "", c.get("user").id).run();
+  return c.json({ ok: true });
+});
+// "Send a test notification" (5 an hour).
+app.post("/api/push/test", async (c) => {
+  const u = c.get("user");
+  if (!(await allowWindow(c.env, `push-test:${u.id}`, 5, 3_600_000))) return c.json({ error: "too_many" }, 429);
+  const n = await sendTo(c.env, [u.id], "test", { title: "Notifications are on", body: "This is how Haven will remind you.", url: "/settings/notifications" });
+  return c.json({ sent: n });
 });
 
 // Dismiss an announcement for this person (every device); DELETE undoes it.
@@ -182,7 +220,7 @@ app.patch("/api/household", async (c) => {
     timezone: (v) => typeof v === "string" && v.length < 64,
     measurement: (v) => ["metric", "us"].includes(v as string),
     default_servings: (v) => v === null || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 20),
-    enabled_modules: (v) => Array.isArray(v) && v.every((x) => x === "meals"),
+    enabled_modules: (v) => Array.isArray(v) && v.every((x) => x === "meals" || x === "todos") && new Set(v).size === v.length,
   };
   const sets: string[] = []; const vals: unknown[] = [];
   for (const [k, v] of Object.entries(b)) {

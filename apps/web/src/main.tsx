@@ -12,11 +12,23 @@ import { Welcome } from "./screens/Welcome";
 import { Join, PENDING_INVITE } from "./screens/Join";
 import { Help, Thread } from "./screens/Help";
 import { Install } from "./screens/Install";
+import { Notifications } from "./screens/Notifications";
 import { api } from "./api";
 import { SessionProvider, useSession } from "./session";
 import { todayIn } from "./date";
 
 const MealsModule = lazy(() => import("@haven/module-meals"));
+const TodosModule = lazy(() => import("@haven/module-todos"));
+
+function Todos() {
+  const { me, db, sync } = useSession();
+  const [members, setMembers] = useState<{ id: string; name: string }[] | null>(null);
+  useEffect(() => { api<{ members: { id: string; name: string }[] }>("/api/members").then((r) => setMembers(r.members)).catch(() => setMembers([])); }, []);
+  if (!me?.household || !db || !sync || !members) return null;
+  if (!me.household.enabled_modules.includes("todos") || me.flags.module_todos_enabled !== true) return <Placeholder title="To-dos is turned off" />;
+  const ctx = { db, sync, user: { id: me.user.id, name: me.user.name, role: me.user.role }, household: me.household, today: todayIn(me.household.timezone), members };
+  return <Suspense fallback={null}><TodosModule ctx={ctx} /></Suspense>;
+}
 
 function Meals() {
   const { me, db, sync } = useSession();
@@ -132,6 +144,8 @@ function App() {
       <Route path="/help/:id" element={<Gate><Thread /></Gate>} />
       <Route path="/install" element={<Gate><Install /></Gate>} />
       <Route path="/m/meals/*" element={<Gate><Meals /></Gate>} />
+      <Route path="/m/todos/*" element={<Gate><Todos /></Gate>} />
+      <Route path="/settings/notifications" element={<Gate><Notifications /></Gate>} />
       <Route path="*" element={<Placeholder title="This page doesn’t exist" />} />
     </Routes>
   </>);

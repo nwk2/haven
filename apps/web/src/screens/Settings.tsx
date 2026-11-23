@@ -7,7 +7,7 @@ import { useSession } from "../session";
 import { InviteRow } from "../components/InviteRow";
 
 interface Member { id: string; name: string; photo_url: string | null; role: "owner" | "member"; joined_at: number }
-type DialogKind = null | "rename" | "timezone" | "units" | "servings" | "remove" | "transfer" | "leave" | "delete" | "signoutAll" | "deleteAccount" | "modules";
+type DialogKind = null | "rename" | "timezone" | "units" | "servings" | "remove" | "transfer" | "leave" | "delete" | "signoutAll" | "deleteAccount" | "modules" | "modules-todos";
 
 export function Settings() {
   const { me, refresh, signOut } = useSession();
@@ -81,12 +81,19 @@ export function Settings() {
             </button>
           )}
         </div>
+        {me.flags.module_todos_enabled && (
+          <div className="module-card h-card">
+            <div className="h-row"><span className="h-row__main"><span className="h-row__title">To-dos</span><span className="h-row__sub">{h.enabled_modules.includes("todos") ? `On for everyone in ${h.name}` : "Shared lists: chores, packing, household jobs"}</span></span>
+              {owner && <Switch label="To-dos module" checked={h.enabled_modules.includes("todos")} onChange={() => open("modules-todos")} />}</div>
+          </div>
+        )}
       </section>
 
       <section className="h-stack" aria-labelledby="app">
         <h2 id="app" className="h-section-title">Appearance and app</h2>
         <Link className="h-row settings-row" to="/settings/appearance"><span className="h-row__main"><span className="h-row__title">Appearance</span><span className="h-row__sub">{{ market: "Market Green", tomato: "Tomato & Ink", night: "Night Utility" }[me.user.theme]} · {me.user.mode === "system" ? "follows your device" : me.user.mode}</span></span>{Icon.chevron}</Link>
         {!matchMedia("(display-mode: standalone)").matches && <Link className="h-row settings-row" to="/install"><span className="h-row__main"><span className="h-row__title">Install Haven on this device</span><span className="h-row__sub">Full screen, works offline</span></span>{Icon.chevron}</Link>}
+        <Link className="h-row settings-row" to="/settings/notifications"><span className="h-row__main"><span className="h-row__title">Notifications</span><span className="h-row__sub">Reminders and the morning digest</span></span>{Icon.chevron}</Link>
         <Link className="h-row settings-row" to="/help"><span className="h-row__main"><span className="h-row__title">Help and feedback{me.unreadReplies > 0 && <span className="dot inline" aria-label="new reply" />}</span><span className="h-row__sub">Quick answers, or tell us what’s not working</span></span>{Icon.chevron}</Link>
       </section>
 
@@ -113,8 +120,12 @@ export function Settings() {
     {dialog === "servings" && <Dialog title="Usual servings" body="New meals start with this many servings. Each meal can still be changed." onClose={close}>
       <Stepper label="Servings" value={num} min={1} max={20} onChange={setNum} />
       <Button loading={busy} onClick={() => patch({ default_servings: num })}>Save</Button><Button variant="text" onClick={() => patch({ default_servings: null })}>Use each recipe’s servings</Button></Dialog>}
-    {dialog === "modules" && <Dialog title={h.enabled_modules.includes("meals") ? "Turn off Meals & Groceries?" : "Turn on Meals & Groceries?"} body="This hides or shows the module for everyone. Nothing is deleted." onClose={close}>
-      <Button variant={h.enabled_modules.includes("meals") ? "danger" : "primary"} loading={busy} onClick={() => patch({ enabled_modules: h.enabled_modules.includes("meals") ? [] : ["meals"] })}>{h.enabled_modules.includes("meals") ? "Turn off" : "Turn on"}</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}
+    {(dialog === "modules" || dialog === "modules-todos") && (() => {
+      const mod = dialog === "modules" ? "meals" : "todos"; const label = mod === "meals" ? "Meals & Groceries" : "To-dos"; const on = h.enabled_modules.includes(mod);
+      return <Dialog title={on ? `Turn off ${label}?` : `Turn on ${label}?`} body="This hides or shows the module for everyone. Nothing is deleted." onClose={close}>
+        <Button variant={on ? "danger" : "primary"} loading={busy} onClick={() => { const mods: string[] = JSON.parse(h.enabled_modules || "[]"); patch({ enabled_modules: on ? mods.filter((x) => x !== mod) : [...mods, mod] }); }}>{on ? `Turn off ${label}` : `Turn on ${label}`}</Button>
+        <Button variant="text" onClick={close}>Cancel</Button></Dialog>;
+    })()}
     {dialog === "remove" && target && <Dialog title={`Remove ${target.name} from ${h.name}?`} body="They lose access right away. Recipes and lists they made stay with the household." onClose={close}>
       {error && <p className="error">{error}</p>}<Button variant="danger" loading={busy} onClick={() => run(() => api(`/api/members/${target.id}/remove`, { method: "POST" }))}>Remove {target.name}</Button><Button variant="text" onClick={close}>Cancel</Button></Dialog>}
     {dialog === "transfer" && <Dialog title="Make someone else the Owner" body="The new Owner controls members, modules and deletion. You stay as a Member." onClose={close}>

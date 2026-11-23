@@ -8,6 +8,7 @@ import { deviceName } from "./SignIn";
 const FLAGS: Record<string, [string, string]> = {
   show_planned_modules: ["Show planned modules", "Console tiles for future modules (not tappable)"],
   module_meals_enabled: ["Meals & Groceries module", "Emergency off switch for every household; data is kept"],
+  module_todos_enabled: ["To-dos module", "Lets households turn on To-dos (Settings › Modules); off stops reminders and hides it; data is kept"],
   offer_install: ["Offer install after first grocery run", "Install banner and guide"],
 };
 const ACTION_TARGET = (t: string, id: string | null) => (id ? `${t} · ${id}` : t);
@@ -71,8 +72,12 @@ const status = (a: Ann) => (a.ends_at <= Date.now() ? "Ended" : a.starts_at > Da
 function AnnouncementsAdmin({ list, onChanged, setList }: { list: Ann[]; onChanged: () => void; setList: (u: (prev: Ann[]) => Ann[]) => void }) {
   const [f, setF] = useState<Form>(blank);
   const [busy, setBusy] = useState(false);
+  // Heads-up (maintenance, outages) defaults to "can't be dismissed" on a new announcement, until you flip
+  // the switch yourself (decision, Nov 2026). Editing an existing one never changes it.
+  const [touched, setTouched] = useState(false);
   const set = (p: Partial<Form>) => setF((x) => ({ ...x, ...p }));
-  const edit = (a: Ann) => setF({ id: a.id, kind: a.kind, title: a.title ?? "", text: a.text, dismissible: !!a.dismissible, from: toLocal(a.starts_at), until: toLocal(a.ends_at), dismissed: a.dismissed, showAgain: false });
+  const pickKind = (k: AnnouncementKind) => set(!f.id && !touched ? { kind: k, dismissible: k !== "warn" } : { kind: k });
+  const edit = (a: Ann) => { setTouched(false); setF({ id: a.id, kind: a.kind, title: a.title ?? "", text: a.text, dismissible: !!a.dismissible, from: toLocal(a.starts_at), until: toLocal(a.ends_at), dismissed: a.dismissed, showAgain: false }); };
   const valid = f.text.trim() && f.from && f.until && new Date(f.until) > new Date(f.from);
   async function save() {
     setBusy(true);
@@ -88,7 +93,7 @@ function AnnouncementsAdmin({ list, onChanged, setList }: { list: Ann[]; onChang
     // whole list, so a later successful refetch cannot duplicate the row.
     const saved: Ann = { id: f.id ?? (r as { id: string }).id, kind: f.kind, title: f.title.trim().slice(0, 60) || null, text: f.text.trim().slice(0, 280), dismissible: f.dismissible ? 1 : 0, starts_at, ends_at, dismissed: f.id ? (f.showAgain ? 0 : f.dismissed) : 0 };
     setList((prev) => (f.id ? prev.map((a) => (a.id === f.id ? saved : a)) : [...prev, saved]).sort((a, b) => b.starts_at - a.starts_at));
-    setF(blank()); onChanged();
+    setF(blank()); setTouched(false); onChanged();
   }
   return (
     <>
@@ -103,18 +108,18 @@ function AnnouncementsAdmin({ list, onChanged, setList }: { list: Ann[]; onChang
             <span className={`ann-status ann-status--${status(a).toLowerCase()}`}>{status(a)}</span>
           </button>
         ))}
-        {f.id && <Button variant="text" onClick={() => setF(blank())}>+ New announcement</Button>}
+        {f.id && <Button variant="text" onClick={() => { setF(blank()); setTouched(false); }}>+ New announcement</Button>}
       </section>
       <section className="h-card h-stack" style={{ padding: 16 }} aria-labelledby="ann-form-h">
         <h2 id="ann-form-h" style={{ margin: 0, fontSize: 16 }}>{f.id ? "Edit announcement" : "New announcement"}</h2>
         <div><span className="h-field__label">Type</span>
           <div className="kind-seg" role="radiogroup" aria-label="Type">{(["info", "warn", "ok"] as const).map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={`kind-seg--${k}`} onClick={() => set({ kind: k })}>{announcementKindIcon(k)}<span>{announcementKindName(k)}</span></button>))}</div></div>
+            <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={`kind-seg--${k}`} onClick={() => pickKind(k)}>{announcementKindIcon(k)}<span>{announcementKindName(k)}</span></button>))}</div></div>
         <Field label="Title (optional)" value={f.title} maxLength={60} placeholder="e.g. Planned maintenance" onChange={(e) => set({ title: e.target.value })} />
         <Field label="Message" textarea value={f.text} maxLength={280} placeholder="What people need to know, in a sentence or two" onChange={(e) => set({ text: e.target.value })} />
         <div className="two-col"><Field label="Show from" type="datetime-local" value={f.from} onChange={(e) => set({ from: e.target.value })} /><Field label="Until" type="datetime-local" value={f.until} onChange={(e) => set({ until: e.target.value })} /></div>
         <div className="spread flag" style={{ borderTop: 0 }}><span><strong>People can dismiss it</strong><br /><span className="muted" style={{ fontSize: 12 }}>Turn off for things everyone must see, like maintenance in progress. It then stays until its end time.</span></span>
-          <Switch label="People can dismiss it" checked={f.dismissible} onChange={(v) => set({ dismissible: v })} /></div>
+          <Switch label="People can dismiss it" checked={f.dismissible} onChange={(v) => { setTouched(true); set({ dismissible: v }); }} /></div>
         {f.id && f.dismissed > 0 && (
           <div className="spread flag" style={{ borderTop: 0 }}><span><strong>Show it again to people who dismissed it</strong><br /><span className="muted" style={{ fontSize: 12 }}>{f.dismissed === 1 ? "1 person has" : `${f.dismissed} people have`} dismissed it. Use this for changes that matter, like a new time; leave it off for typo fixes.</span></span>
             <Switch label="Show it again to people who dismissed it" checked={f.showAgain} onChange={(v) => set({ showAgain: v })} /></div>
@@ -123,7 +128,7 @@ function AnnouncementsAdmin({ list, onChanged, setList }: { list: Ann[]; onChang
         <div className="ann-preview"><Announcement preview a={{ id: "preview", kind: f.kind, title: f.title.trim() || null, text: f.text, dismissible: f.dismissible, ends_at: f.until ? new Date(f.until).getTime() : Date.now() }} /></div>
         <div className="h-stack">
           <Button disabled={!valid} loading={busy} onClick={save}>{f.id ? "Save changes" : "Schedule announcement"}</Button>
-          {f.id && <Button variant="secondary" className="quiet-danger" onClick={async () => { const id = f.id; await api(`/announcements/${id}`, { method: "DELETE" }); setList((prev) => prev.filter((a) => a.id !== id)); setF(blank()); onChanged(); }}>Remove announcement</Button>}
+          {f.id && <Button variant="secondary" className="quiet-danger" onClick={async () => { const id = f.id; await api(`/announcements/${id}`, { method: "DELETE" }); setList((prev) => prev.filter((a) => a.id !== id)); setF(blank()); setTouched(false); onChanged(); }}>Remove announcement</Button>}
         </div>
         <span className="muted" style={{ fontSize: 12 }}>Open Haven apps update within a few seconds of saving.</span>
       </section>

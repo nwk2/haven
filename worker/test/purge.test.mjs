@@ -38,6 +38,9 @@ db.exec(`
   INSERT INTO audit_log (id, at, action, target_type) VALUES ('l-old',${now - 366 * day},'x','y'), ('l-new',${now - day},'x','y');
   INSERT INTO announcements (id, text, starts_at, ends_at, kind) VALUES ('a-old','x',${now - 120 * day},${now - 91 * day},'info'), ('a-new','x',${now - 10 * day},${now - 5 * day},'warn');
   INSERT INTO announcement_dismissals (user_id, announcement_id, at) VALUES ('u1','a-old',0), ('u1','a-new',0);
+  INSERT INTO todos_items (id, household_id, list_id, title, done_at, version) VALUES ('t-old','keep','l','x',${now - 40 * day},1), ('t-recent','keep','l','x',${now - 10 * day},2), ('t-open','keep','l','x',NULL,3);
+  INSERT INTO todos_items (id, household_id, list_id, title, done_at, repeat, version) VALUES ('t-repeat','keep','l','x',${now - 40 * day},'{"kind":"weekly"}',4);
+  INSERT INTO todos_sent (household_id, key, at) VALUES ('keep','old',${now - 4 * day}), ('keep','new',${now - day});
   INSERT INTO meals_trips (id, household_id, date, version, deleted, deleted_at) VALUES ('t-live','keep','2026-12-01',10,0,NULL), ('t-old','keep','2026-10-01',11,1,${now - 31 * day}), ('t-recent','keep','2026-11-01',12,1,${now - day});
   INSERT INTO meals_items (household_id, trip_id, key, version, deleted, deleted_at) VALUES ('keep','t-live','feta_mass',13,1,${now - 40 * day}), ('keep','t-live','beans_count-can',14,0,NULL);
   INSERT INTO meals_planned (id, household_id, date, slot, recipe_id, servings, version, deleted, deleted_at) VALUES ('p-old','expinv','2026-10-01','dinner','r-live',2,7,1,${now - 35 * day});
@@ -53,6 +56,8 @@ assert.deepEqual(ids("SELECT id FROM feedback"), ["f-new"]);
 assert.deepEqual(ids("SELECT id FROM audit_log"), ["l-new"]);
 assert.deepEqual(ids("SELECT id FROM announcements"), ["a-new"]);
 assert.deepEqual(ids("SELECT announcement_id AS id FROM announcement_dismissals"), ["a-new"]);
+assert.deepEqual(ids("SELECT id FROM todos_items"), ["t-open", "t-recent", "t-repeat"]);
+assert.deepEqual(ids("SELECT key AS id FROM todos_sent"), ["new"]);
 assert.deepEqual(ids("SELECT id FROM households"), ["expinv", "keep", "restorable"]);
 assert.equal(db.prepare("SELECT invite_code FROM households WHERE id = 'expinv'").get().invite_code, null);
 assert.equal(db.prepare("SELECT invite_code FROM households WHERE id = 'keep'").get().invite_code, "fresh");

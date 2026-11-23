@@ -1,4 +1,5 @@
 import { sha256 } from "./crypto";
+import { notifyGiven, runReminders } from "./notify";
 import type { Env } from "./env";
 
 /**
@@ -16,6 +17,9 @@ const WRITABLE: Record<string, string[]> = {
   meals_planned: ["date", "slot", "recipe_id", "servings", "status", "run_id", "bought_on_trip_id", "recipe_snapshot", "deleted"],
   meals_trips: ["date", "kind", "name", "status", "finished_at", "reopen_until", "final_lines", "deleted"],
   meals_items: ["trip_id", "key", "checked", "checked_by", "checked_at", "bought_qty", "bought_unit", "unavailable", "have_it", "carried_from", "label", "qty", "unit", "section", "deleted"],
+  todos_lists: ["name", "emoji", "position", "checklist", "created_by", "deleted"],
+  todos_items: ["list_id", "title", "note", "due_date", "due_time", "repeat", "assignee_id", "position", "checked", "done_at", "done_by", "last_done_at", "last_done_by", "created_by", "created_at", "deleted"],
+  todos_mutes: ["user_id", "list_id", "deleted"],
 };
 const PULL_TABLES = Object.keys(WRITABLE);
 const PAGE = 500;
@@ -28,6 +32,30 @@ export class Household implements DurableObject {
   constructor(private state: DurableObjectState, private env: Env) {
     state.storage.sql.exec("CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, at INTEGER)");
     state.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)");
+    // "Someone gave you a to-do" notices waiting for the alarm (sending never runs inside a sync request).
+    state.storage.sql.exec("CREATE TABLE IF NOT EXISTS given (item_id TEXT, assignee TEXT, actor TEXT, at INTEGER)");
+  }
+
+  /** Reminders (PRD › To-dos plan › Notifications): sends what's due, then sleeps until the next one. */
+  async alarm() {
+    const householdId = await this.state.storage.get<string>("household");
+    if (!householdId) return;
+    try {
+      for (const g of this.state.storage.sql.exec<{ item_id: string; assignee: string; actor: string }>("SELECT item_id, assignee, actor FROM given").toArray()) await notifyGiven(this.env, householdId, g.item_id, g.assignee, g.actor);
+      this.state.storage.sql.exec("DELETE FROM given");
+      const next = await runReminders(this.env, householdId);
+      if (next) await this.state.storage.setAlarm(Math.max(next, Date.now() + 1000));
+    } catch (e) {
+      console.error("reminders: alarm failed", String(e));
+      await this.state.storage.setAlarm(Date.now() + 5 * 60_000);   // try again in 5 minutes
+    }
+  }
+
+  /** Re-plan reminders soon (after any To-dos change), unless an earlier alarm is already set. */
+  private async replan(householdId: string) {
+    await this.state.storage.put("household", householdId);
+    const soon = Date.now() + 2000, cur = await this.state.storage.getAlarm();
+    if (!cur || cur > soon) await this.state.storage.setAlarm(soon);
   }
 
   private reconciled = false;
@@ -103,8 +131,10 @@ export class Household implements DurableObject {
     }
 
     // push. The admin's module off switch refuses module writes (data is kept).
-    const mealsOn = (await this.env.DB.prepare("SELECT value FROM flags WHERE key = 'module_meals_enabled'").first<{ value: string }>())?.value !== "false";
-    if (!mealsOn) msg = { ...msg, mutations: msg.mutations.filter((m) => !m.table.startsWith("meals_")) };
+    const flagRows = (await this.env.DB.prepare("SELECT key, value FROM flags WHERE key IN ('module_meals_enabled', 'module_todos_enabled')").all<{ key: string; value: string }>()).results;
+    const flag = (k: string) => flagRows.find((f) => f.key === k)?.value;
+    if (flag("module_meals_enabled") === "false") msg = { ...msg, mutations: msg.mutations.filter((m) => !m.table.startsWith("meals_")) };
+    if (flag("module_todos_enabled") !== "true") msg = { ...msg, mutations: msg.mutations.filter((m) => !m.table.startsWith("todos_")) };
     const acked: string[] = [];
     const rejected: string[] = [];
     const changed: Record<string, unknown>[] = [];
@@ -155,6 +185,8 @@ export class Household implements DurableObject {
       this.state.storage.sql.exec("INSERT OR IGNORE INTO seen (id, at) VALUES (?, ?)", m.id, Date.now());
       changed.push({ table: m.table, rowId: m.rowId, ...Object.fromEntries(fields), version: v });
       acked.push(m.id);
+      if (m.table === "todos_items" && typeof m.fields.assignee_id === "string" && m.fields.assignee_id !== who.userId)
+        this.state.storage.sql.exec("INSERT INTO given (item_id, assignee, actor, at) VALUES (?, ?, ?, ?)", m.rowId, m.fields.assignee_id, who.userId, Date.now());
       // Success-metric events (Technical spec › Measuring success): no names or emails, household id hashed.
       const ev = m.table === "meals_trips" && m.fields.status === "finished" ? "trip_finished"
         : m.table === "meals_trips" && m.fields.kind === "regular" && m.fields.date ? "list_generated"
@@ -163,6 +195,7 @@ export class Household implements DurableObject {
     }
     for (const id of rejected) this.state.storage.sql.exec("INSERT OR IGNORE INTO seen (id, at) VALUES (?, ?)", id, Date.now());
     this.state.storage.sql.exec("DELETE FROM seen WHERE id NOT IN (SELECT id FROM seen ORDER BY at DESC LIMIT 1000)");
+    if (changed.some((r) => String(r.table).startsWith("todos_"))) await this.replan(who.householdId);
     if (changed.length) {
       const out = JSON.stringify({ type: "changes", rows: changed, version: v } satisfies ServerMessage);
       for (const ws of this.state.getWebSockets()) if (ws !== from) ws.send(out);

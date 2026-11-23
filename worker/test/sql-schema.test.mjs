@@ -10,13 +10,14 @@ for (const file of readdirSync("src", { recursive: true }).filter((f) => f.endsW
   const re = /prepare\(\s*(`[\s\S]*?`|"(?:[^"\\]|\\.)*")/g;
   let m;
   while ((m = re.exec(src))) {
-    let sql = m[1].slice(1, -1);
+    // A variable-length IN list ("IN (${marks})") is checked as one placeholder.
+    let sql = m[1].slice(1, -1).replace(/IN \(\$\{[^}]*\}\)/g, "IN (?)");
     // Expand interpolations: table loops and optional WHERE fragments.
     const variants = [];
-    if (sql.includes("${table}") || sql.includes("${t}")) for (const t of ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"]) variants.push(sql.replaceAll("${table}", t).replaceAll("${t}", t));
+    if (sql.includes("${table}") || sql.includes("${t}")) for (const t of ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "todos_lists", "todos_items", "todos_mutes"]) variants.push(sql.replaceAll("${table}", t).replaceAll("${t}", t));
     else if (sql.includes("${Object.keys(WRITABLE)")) {
       // Version reconcile: one MAX(version) per sync table, unioned (household.ts).
-      const tables = ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items"];
+      const tables = ["activity", "meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "todos_lists", "todos_items", "todos_mutes"];
       variants.push(`SELECT MAX(${tables.map((t) => `COALESCE((SELECT MAX(version) FROM ${t} WHERE household_id = ?1), 0)`).join(", ")}) AS v`);
     }
     else if (sql.includes("${m.table}")) continue;                       // generic upsert, columns from the WRITABLE allow-list (checked below)

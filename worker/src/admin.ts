@@ -293,8 +293,8 @@ admin.get("/api/flags", async (c) => c.json({
 }));
 admin.put("/api/flags/:key", async (c) => {
   const key = c.req.param("key");
-  if (!["show_planned_modules", "module_meals_enabled", "offer_install"].includes(key)) return c.json({ error: "unknown_flag" }, 400);
-  if (key === "module_meals_enabled") { const r = stepUp(c); if (r) return r; }
+  if (!["show_planned_modules", "module_meals_enabled", "module_todos_enabled", "offer_install"].includes(key)) return c.json({ error: "unknown_flag" }, 400);
+  if (key === "module_meals_enabled" || key === "module_todos_enabled") { const r = stepUp(c); if (r) return r; }
   const { value } = await c.req.json<{ value: boolean }>();
   await c.env.DB.prepare("UPDATE flags SET value = ?, updated_at = ? WHERE key = ?").bind(JSON.stringify(!!value), Date.now(), key).run();
   await audit(c.env, value ? "Switched on" : "Switched off", "flag", key);

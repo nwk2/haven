@@ -1,11 +1,11 @@
 import Dexie, { type Table } from "dexie";
 
 /** Household tables mirrored on the device (Technical spec › Data model). */
-export const TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity"] as const;
+export const TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
 export type TableName = (typeof TABLES)[number];
 
 /** Columns stored as JSON text in D1, as objects on the device. */
-export const JSON_COLS = new Set(["ingredients", "steps", "tags", "final_lines", "recipe_snapshot"]);
+export const JSON_COLS = new Set(["ingredients", "steps", "tags", "final_lines", "recipe_snapshot", "repeat"]);
 
 export interface Row { id: string; version?: number; deleted?: number; [k: string]: unknown }
 export interface OutboxEntry { seq?: number; id: string; table: TableName; rowId: string; fields: Record<string, unknown> }
@@ -19,6 +19,9 @@ export class HavenDB extends Dexie {
   meals_trips!: Table<Row, string>;
   meals_items!: Table<Row, string>;
   activity!: Table<Row, string>;
+  todos_lists!: Table<Row, string>;
+  todos_items!: Table<Row, string>;
+  todos_mutes!: Table<Row, string>;
 
   constructor(userId: string) {
     // One database per signed-in user, so a shared device never mixes households.
@@ -33,6 +36,8 @@ export class HavenDB extends Dexie {
       meals_items: "id, trip_id",
       activity: "id, at",
     });
+    // v2 (Nov 2026): To-dos module.
+    this.version(2).stores({ todos_lists: "id", todos_items: "id, list_id, due_date", todos_mutes: "id, user_id" });
   }
 
   table_(name: TableName): Table<Row, string> { return this.table(name) as Table<Row, string>; }

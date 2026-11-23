@@ -53,6 +53,9 @@ PROTOCOL_VERSION = "1"
 # Public by design (it appears in the Google sign-in URL). The secret is GOOGLE_CLIENT_SECRET,
 # already set in the dashboard.
 GOOGLE_CLIENT_ID = "710021216622-hp6scvlvmm2q05adlrd5sijm2qltsanh.apps.googleusercontent.com"
+# Public by design (browsers need it to subscribe). The private half is VAPID_PRIVATE_KEY,
+# a runtime secret on the haven Worker — never committed.
+VAPID_PUBLIC_KEY = "BEs1QLqJ-KbbWwqbg4REXTpO0tH_ARwjmEFA1jbCwyyC0HzRqZWwd-JjyVSUptqyUG_ZfYVd8uVMU9tQg7Lq5sA"
 
 [triggers]
 crons = ["0 3 * * *"]

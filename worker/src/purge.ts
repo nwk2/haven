@@ -6,7 +6,7 @@ export interface PurgeDB { prepare(sql: string): { bind(...v: unknown[]): unknow
  * if any statement fails, nothing is purged, so every statement is covered by
  * worker/test/purge.test.mjs against the real migrations.
  */
-export const TOMBSTONE_TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity"] as const;
+export const TOMBSTONE_TABLES = ["meals_ingredients", "meals_recipes", "meals_planned", "meals_trips", "meals_items", "activity", "todos_lists", "todos_items", "todos_mutes"] as const;
 
 export async function purge(env: { DB: PurgeDB }, now = Date.now()) {
   const day = 86_400_000;
@@ -19,6 +19,10 @@ export async function purge(env: { DB: PurgeDB }, now = Date.now()) {
     // Announcements that ended more than 90 days ago, with their dismissals (admin lists the last 90 days).
     env.DB.prepare("DELETE FROM announcement_dismissals WHERE announcement_id IN (SELECT id FROM announcements WHERE ends_at < ?)").bind(now - 90 * day),
     env.DB.prepare("DELETE FROM announcements WHERE ends_at < ?").bind(now - 90 * day),
+    // To-dos: reminder bookkeeping older than 3 days; one-time items done more than 37 days ago (the app
+    // stops showing them 7 days after they're ticked; this just keeps the table small).
+    env.DB.prepare("DELETE FROM todos_sent WHERE at < ?").bind(now - 3 * day),
+    env.DB.prepare("DELETE FROM todos_items WHERE done_at IS NOT NULL AND done_at < ? AND repeat IS NULL").bind(now - 37 * day),
     env.DB.prepare("UPDATE households SET invite_code = NULL, invite_expires_at = NULL WHERE invite_expires_at < ?").bind(now),
     // Tombstones (deleted rows) live 30 days so offline devices learn about deletions; then they go.
     // First raise each household's purge_floor to the highest version being purged, so a device

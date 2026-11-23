@@ -151,9 +151,16 @@ export class Sync {
   /** Applies server rows, then re-applies any unsent local changes on top (last write wins per field). */
   private async applyRemote(rows: Record<string, unknown>[]) {
     const pending = await this.db.outbox.toArray();
+    // Tables this build knows (Dexie version): a stale client (e.g. still on the
+    // pre-To-dos build) has no todos tables, and table_() throws for an unknown
+    // table. Skip those rows instead of breaking the whole pull: the cursor
+    // never advances and sync stays stuck until the device reloads otherwise.
+    // Known tables still throw on real errors, as before.
+    const known = new Set(this.db.tables.map((t) => t.name));
     await this.db.transaction("rw", this.db.tables, async () => {
       for (const raw of rows) {
         const table = raw.table as TableName;
+        if (!known.has(table)) continue;
         const { table: _t, rowId, ...rest } = raw as Record<string, unknown> & { rowId?: string };
         const row: Row = { ...rest, id: "" };
         for (const c of JSON_COLS) if (typeof row[c] === "string") { try { row[c] = JSON.parse(row[c] as string); } catch { /* keep text */ } }

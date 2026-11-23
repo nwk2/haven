@@ -15,4 +15,8 @@ export interface Env {
   EMAIL_FROM?: string;
   CF_API_TOKEN?: string;
   CF_ACCOUNT_ID?: string;
+  // Push notifications (optional until set): VAPID keys from `npm run vapid`.
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 }
