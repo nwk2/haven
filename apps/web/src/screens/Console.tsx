@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { todayIn } from "../date";
 import { useSession } from "../session";
 import { Announcements } from "../components/Announcements";
+import { InstallCard } from "../components/InstallCard";
 
 export function Console() {
   const { me, db } = useSession();
@@ -44,6 +45,8 @@ export function Console() {
       {me!.unreadReplies > 0 && (
         <Link to="/help" className="note note--info" role="status"><strong>The Haven team replied</strong> to your message.</Link>
       )}
+
+      <InstallCard />
 
       {firstRun && (
         <section className="h-card h-stack" style={{ padding: 16 }} aria-labelledby="gs">

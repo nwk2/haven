@@ -9,7 +9,7 @@ const FLAGS: Record<string, [string, string]> = {
   show_planned_modules: ["Show planned modules", "Console tiles for future modules (not tappable)"],
   module_meals_enabled: ["Meals & Groceries module", "Emergency off switch for every household; data is kept"],
   module_todos_enabled: ["Tasks module", "Lets households turn on Tasks (Settings › Modules); off stops reminders and hides it; data is kept"],
-  offer_install: ["Offer install after first grocery run", "Install banner and guide"],
+  offer_install: ["Offer install after sign-in", "Install card on the home screen, with steps for this device"],
 };
 const ACTION_TARGET = (t: string, id: string | null) => (id ? `${t} · ${id}` : t);
 
