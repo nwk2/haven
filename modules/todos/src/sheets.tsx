@@ -1,6 +1,6 @@
 import { addDays, nextDue, repeatLabel, type Repeat, type RepeatKind } from "@haven/todos-core";
 import { Button, Field, Select, Sheet, Switch } from "@haven/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCtx } from "./ctx";
 import { dayLabel, firstName, newId, timeLabel, useMutate, whenLabel, type TItem, type TList } from "./data";
@@ -8,12 +8,34 @@ import type { Undo } from "./screens";
 
 const KINDS: RepeatKind[] = ["daily", "weekly", "biweekly", "monthly", "monthly_nth", "yearly", "after"];
 
-/** Item sheet: every change saves as you make it (like Meals' item sheet). */
+/** Item sheet: most changes save as you make them (like Meals' item sheet) — except Due / Time / Repeat, which are staged locally and saved on Done (Nov 2026). */
 export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list: TList; onClose: () => void; setUndo: (u: Undo) => void }) {
   const { user, members, today } = useCtx();
   const m = useMutate();
   const [f, setF] = useState(item);
   const save = (p: Partial<TItem>) => { setF((x) => ({ ...x, ...p })); void m.item(item.id, p); };
+  // Due / Time / Repeat are staged locally and only saved on Done (Nov 2026):
+  // the native picker closes on tap, so an instant save would commit a mis-tap.
+  // The commit compares against the values as opened — not the live prop — so a
+  // remote edit arriving while the sheet is open is never clobbered by an
+  // untouched Done. Backdrop / Escape discards the staged date group.
+  const opened = useRef({ due_date: item.due_date ?? null, due_time: item.due_time ?? null, repeat: item.repeat ?? null });
+  const repeatSame = (a?: Repeat | null, b?: Repeat | null) => (a?.kind ?? null) === (b?.kind ?? null) && (a?.n ?? null) === (b?.n ?? null);
+  // The staged date group's diff vs the values as opened — the single notion of
+  // "dirty" for both the commit and the Done variant. Reverting the staged values
+  // back to the opened ones makes the diff empty again, so Done flips back.
+  const dateDiff = () => {
+    const p: Partial<TItem> = {};
+    if ((f.due_date ?? null) !== opened.current.due_date) p.due_date = f.due_date ?? null;
+    if ((f.due_time ?? null) !== opened.current.due_time) p.due_time = f.due_time ?? null;
+    if (!repeatSame(f.repeat, opened.current.repeat)) p.repeat = f.repeat ?? null;
+    return p;
+  };
+  const commitDate = () => {
+    const p = dateDiff();
+    if (Object.keys(p).length) void m.item(item.id, p);
+  };
+  const dateDirty = Object.keys(dateDiff()).length > 0;
   const name = (id?: string | null) => firstName(members.find((x) => x.id === id)?.name);
   const repeatValue = f.repeat ? f.repeat.kind : "";
   const tomorrow = addDays(today, 1);
@@ -21,8 +43,8 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
   // No date clears the time and repeat too (both need a day).
   // "Sat 28" fits a segment; the full date is in its accessible name.
   const shortDay = (d: string) => { const [y, mo, day] = d.split("-").map(Number); return new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", timeZone: "UTC" }).format(Date.UTC(y, mo - 1, day)); };
-  const setDay = (d: string | null) => save(d ? { due_date: d } : { due_date: null, due_time: null, repeat: null });
-  const setRepeat = (k: string) => save({ repeat: k ? ({ kind: k as RepeatKind, ...(k === "after" ? { n: f.repeat?.n ?? 3 } : {}) } as Repeat) : null });
+  const setDay = (d: string | null) => setF((x) => d ? { ...x, due_date: d } : { ...x, due_date: null, due_time: null, repeat: null });
+  const setRepeat = (k: string) => setF((x) => ({ ...x, repeat: k ? ({ kind: k as RepeatKind, ...(k === "after" ? { n: x.repeat?.n ?? 3 } : {}) } as Repeat) : null }));
 
   return (
     <Sheet title={list.checklist ? "Item" : "Task"} onClose={onClose}>
@@ -30,7 +52,8 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
         <Field label="Title" value={f.title} maxLength={200} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => f.title.trim() && f.title !== item.title && save({ title: f.title.trim() })} />
         {!list.checklist && (<>
           {/* Due and Time as the app's segmented control (Nov 2026 polish); Time and Repeat appear once there's a day.
-              "Pick…" and "Set time" are the phone's own pickers, laid invisibly over the segment. */}
+              "Pick…" and "Set time" are the phone's own pickers, laid invisibly over the segment.
+              Staged: picks here only update local state; Done saves them, backdrop / Escape discards them. */}
           <div className="td-field"><span className="h-field__label" id="due-l">Due</span>
             <div className="h-seg td-seg" role="radiogroup" aria-labelledby="due-l">
               <button type="button" role="radio" aria-checked={!f.due_date} onClick={() => setDay(null)}>No date</button>
@@ -45,10 +68,10 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
           {f.due_date && (<>
             <div className="td-field"><span className="h-field__label" id="time-l">Time</span>
               <div className="h-seg td-seg" role="radiogroup" aria-labelledby="time-l">
-                <button type="button" role="radio" aria-checked={!f.due_time} onClick={() => save({ due_time: null })}>Any time</button>
+                <button type="button" role="radio" aria-checked={!f.due_time} onClick={() => setF((x) => ({ ...x, due_time: null }))}>Any time</button>
                 <label className="td-seg__pick" role="radio" aria-checked={!!f.due_time}>
                   <span>{f.due_time ? timeLabel(f.due_time) : "Set time"}</span>
-                  <input type="time" aria-label={f.due_time ? `At ${timeLabel(f.due_time)}, change time` : "Set a time"} value={f.due_time ?? ""} onChange={(e) => save({ due_time: e.target.value || null })} />
+                  <input type="time" aria-label={f.due_time ? `At ${timeLabel(f.due_time)}, change time` : "Set a time"} value={f.due_time ?? ""} onChange={(e) => setF((x) => ({ ...x, due_time: e.target.value || null }))} />
                 </label>
               </div>
             </div>
@@ -61,7 +84,7 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
           </>)}
           {f.repeat?.kind === "after" && (
             <label className="td-field"><span className="h-field__label">Days after it’s done</span>
-              <Select value={f.repeat.n ?? 3} onChange={(e) => save({ repeat: { kind: "after", n: Number(e.target.value) } })}>
+              <Select value={f.repeat.n ?? 3} onChange={(e) => setF((x) => ({ ...x, repeat: { kind: "after", n: Number(e.target.value) } }))}>
                 {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
               </Select>
             </label>
@@ -86,10 +109,10 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
           {item.done_at && <><br />Done by {name(item.done_by)} · {whenLabel(item.done_at)}</>}
         </p>
         {!list.checklist && f.repeat && f.due_date && !item.done_at && (
-          <Button variant="secondary" block onClick={() => { const next = nextDue(f.repeat!, f.due_date!, today); const was = f.due_date; save({ due_date: next }); setUndo({ text: `Skipped. Next: ${dayLabel(next, today)}`, undo: () => void m.item(item.id, { due_date: was }) }); onClose(); }}>Skip this time</Button>
+          <Button variant="secondary" block onClick={() => { const next = nextDue(f.repeat!, f.due_date!, today); const was = item.due_date ?? null; save({ due_date: next }); setUndo({ text: `Skipped. Next: ${dayLabel(next, today)}`, undo: () => void m.item(item.id, { due_date: was }) }); onClose(); }}>Skip this time</Button>
         )}
         <Button variant="secondary" className="td-danger" block onClick={() => { void m.item(item.id, { deleted: 1 }); setUndo({ text: "Deleted", undo: () => void m.item(item.id, { deleted: 0 }) }); onClose(); }}>Delete</Button>
-        <Button variant="secondary" block onClick={onClose}>Done</Button>
+        <Button variant={dateDirty ? "primary" : "secondary"} block onClick={() => { commitDate(); onClose(); }}>Done</Button>
       </div>
     </Sheet>
   );
