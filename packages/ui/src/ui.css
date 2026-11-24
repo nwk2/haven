@@ -76,8 +76,8 @@ select.h-input { -webkit-appearance: none; appearance: none; padding-right: 36px
 @keyframes h-fade { from { opacity: 0; } }
 @media (min-width: 1024px) { .h-sheet { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 480px; border-radius: 18px; animation-name: h-fade; } }
 
-.h-pill { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 8px; padding: 8px 14px;
-  border-radius: 20px; background: var(--haven-ink); color: var(--haven-bg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.h-pill { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; box-sizing: border-box; padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px;
+  border-radius: 0; background: var(--haven-ink); color: var(--haven-bg); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .h-pill__dot { width: 8px; height: 8px; border-radius: 4px; background: var(--haven-accent-2); }
 .h-toast { position: fixed; left: 12px; right: 12px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); z-index: 60; max-width: 480px; margin: 0 auto; padding: 14px; border-radius: 16px;
   background: var(--haven-ink); color: var(--haven-bg); display: flex; flex-direction: column; gap: 10px; }
@@ -87,7 +87,7 @@ select.h-input { -webkit-appearance: none; appearance: none; padding-right: 36px
 .h-skeleton { background: var(--haven-disabled-bg); border-radius: 6px; }
 
 @media (prefers-reduced-motion: reduce) { .h-sheet, .h-dialog { animation: h-fade 100ms both; } .h-spin { animation: none; } }
-.h-pill--warn { background: var(--haven-ann-warn-bg); color: var(--haven-ann-warn); max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
+.h-pill--warn { background: var(--haven-ann-warn-bg); color: var(--haven-ann-warn); max-width: none; white-space: normal; text-align: center; }
 .h-pill--warn .h-pill__dot { background: var(--haven-ann-warn); flex-shrink: 0; }
 
 .h-ann { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 8px 12px 14px; border-radius: 14px; background: var(--t-bg); border-left: 4px solid var(--t); color: var(--haven-ink); }

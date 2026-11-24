@@ -37,7 +37,7 @@ export function Plan() {
         <section className="h-card h-stack" style={{ padding: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Nothing planned for the next 7 days</h2>
           <p className="muted" style={{ margin: 0 }}>Add meals to days. Your shopping list builds itself from what’s planned.</p>
-          {d.recipes.length ? <Button onClick={() => setAdding(days.find((x) => x >= today) ?? days[0])}>Add a meal</Button> : <Link className="h-btn h-btn--primary" to="/m/meals/recipes/new">Add your first recipe</Link>}
+          {!d.recipes.length && <Link className="h-btn h-btn--primary" to="/m/meals/recipes/new">Add your first recipe</Link>}
         </section>
       )}
       <div className="plan-layout"><div className="plan-days">

@@ -195,6 +195,10 @@ export class Household implements DurableObject {
     if (changed.length) {
       const out = JSON.stringify({ type: "changes", rows: changed, version: v } satisfies ServerMessage);
       for (const ws of this.state.getWebSockets()) if (ws !== from) ws.send(out);
+      // Echo the applied rows back to the sender too, so its cursor advances past
+      // its own push: a later pull can't return the pre-push rows and overwrite
+      // the local state the ack just cleared the outbox for (the uncheck flicker).
+      if (from) from.send(out);
     }
     // Rejected changes are acknowledged too, so they leave the outbox instead of blocking it forever.
     return { type: "ack", ids: [...acked, ...rejected], rejected, version: v };
