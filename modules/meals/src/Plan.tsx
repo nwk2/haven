@@ -1,5 +1,5 @@
 import { addDays } from "@haven/meals-core";
-import { Button, Sheet, Stepper } from "@haven/ui";
+import { Button, Icon, Sheet, Stepper } from "@haven/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCtx } from "./ctx";
@@ -27,11 +27,11 @@ export function Plan() {
 
   return (
     <ModuleShell title="Plan" tab="plan" header={
-      <div className="week-switch h-card">
-        <button className="h-icon-btn" aria-label="Previous 7 days" onClick={() => setOffset(offset - 1)}>‹</button>
-        <div className="center-text"><strong>{fmt(days[0], { month: "short", day: "numeric" })} – {fmt(days[6], { month: "short", day: "numeric" })}</strong>
-          <div className="muted" style={{ fontSize: 12 }}>{offset === 0 ? "Today onwards" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
-        <button className="h-icon-btn" aria-label="Next 7 days" onClick={() => setOffset(offset + 1)}>›</button>
+      <div className="week-switch">
+        <button className="h-icon-btn" aria-label="Previous 7 days" onClick={() => setOffset(offset - 1)}>{Icon.back}</button>
+        <div className="center-text"><strong className="tnum">{fmt(days[0], { day: "numeric", month: "short" })} – {fmt(days[6], { day: "numeric", month: "short" })}</strong>
+          <div className="week-switch__sub">{offset === 0 ? "Today onwards" : <button className="linklike" onClick={() => setOffset(0)}>Back to today</button>}</div></div>
+        <button className="h-icon-btn" aria-label="Next 7 days" onClick={() => setOffset(offset + 1)}>{Icon.chevron}</button>
       </div>}>
       {empty && (
         <section className="h-card h-stack" style={{ padding: 16 }}>
@@ -40,26 +40,33 @@ export function Plan() {
           {!d.recipes.length && <Link className="h-btn h-btn--primary" to="/m/meals/recipes/new">Add your first recipe</Link>}
         </section>
       )}
-      <div className="plan-layout"><div className="plan-days">
+      {/* One grouped list: a day is a row, not a card (decision, Nov 2026: fewer boxes). */}
+      <div className="plan-days h-card">
         {days.map((day) => {
           const meals = mealsOn(day); const past = day < today;
+          const date = <span className="day__date"><span>{day === today ? "Today" : fmt(day, { weekday: "short" })}</span><strong>{fmt(day, { day: "numeric" })}</strong></span>;
+          const cls = `day${past ? " day--past" : ""}${day === today ? " day--today" : ""}`;
+          // An empty upcoming day is one tap target; an empty past day is just the date.
+          if (!meals.length) return past
+            ? <div key={day} className={`${cls} day--empty`}>{date}<span className="day__none">Nothing planned</span></div>
+            : <button key={day} type="button" className={`${cls} day--empty`} aria-label={`Add a meal to ${fmt(day, { weekday: "long", day: "numeric", month: "long" })}`} onClick={() => setAdding(day)}>
+                {date}<span className="day__none">Nothing planned</span><span className="day__plus" aria-hidden="true">{Icon.plus}</span>
+              </button>;
           return (
-            <div key={day} className={`day h-card${past ? " day--past" : ""}${day === today ? " day--today" : ""}`}>
-              <div className="day__date"><span>{day === today ? "Today" : fmt(day, { weekday: "short" })}</span><strong>{fmt(day, { day: "numeric" })}</strong></div>
+            <div key={day} className={cls}>
+              {date}
               <div className="day__meals">
                 {meals.map((x) => (
-                  <div key={x.id} className="meal-wrap">
-                    <button className="meal" onClick={() => setOpen(x)}>
-                      <span className="meal__slot">{cap(x.slot)}</span><span>{d.recipes.find((r) => r.id === x.recipe_id)?.title ?? x.recipe_snapshot?.title ?? "Deleted recipe"}</span>
-                    </button>
-                  </div>
+                  <button key={x.id} className="meal" onClick={() => setOpen(x)}>
+                    <span className="meal__slot">{cap(x.slot)}</span><span>{d.recipes.find((r) => r.id === x.recipe_id)?.title ?? x.recipe_snapshot?.title ?? "Deleted recipe"}</span>
+                  </button>
                 ))}
-                {!past && <button className="add-meal" onClick={() => setAdding(day)}>+ Add meal</button>}
+                {!past && <button className="add-meal" onClick={() => setAdding(day)} aria-label={`Add a meal to ${fmt(day, { weekday: "long", day: "numeric", month: "long" })}`}>+ Add</button>}
               </div>
             </div>
           );
         })}
-      </div></div>
+      </div>
       {adding && <AddMeal day={adding} data={d} onClose={() => setAdding(null)} />}
       {open && <MealSheet meal={open} data={d} onClose={() => setOpen(null)} />}
     </ModuleShell>

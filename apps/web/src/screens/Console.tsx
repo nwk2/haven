@@ -1,118 +1,103 @@
 import { Icon } from "@haven/ui";
-import { isLate } from "@haven/todos-core";
-import { useNowHM } from "@haven/module-todos";
 import { useLiveQuery } from "dexie-react-hooks";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../api";
 import { todayIn } from "../date";
 import { useSession } from "../session";
 import { Announcements } from "../components/Announcements";
 import { InstallCard } from "../components/InstallCard";
 
+// Each module renders its own console section (today's meal, what's due) inside its own ctx;
+// lazy, so the console doesn't pull whole modules into the first load.
+const ConsoleMeals = lazy(() => import("@haven/module-meals").then((m) => ({ default: m.ConsoleMeals })));
+const ConsoleTasks = lazy(() => import("@haven/module-todos").then((m) => ({ default: m.ConsoleTasks })));
+
+type Member = { id: string; name: string };
+
 export function Console() {
-  const { me, db } = useSession();
+  const { me, db, sync } = useSession();
   const h = me?.household;
   const today = h ? todayIn(h.timezone) : "";
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => { api<{ members: Member[] }>("/api/members").then((r) => setMembers(r.members)).catch(() => setMembers([])); }, [h?.id]);
   const data = useLiveQuery(async () => {
     if (!db) return null;
     const [recipes, planned, activity] = await Promise.all([
       db.meals_recipes.filter((r) => !r.deleted).count(),
-      db.meals_planned.filter((m) => !m.deleted && m.status === "planned").toArray(),
+      db.meals_planned.filter((m) => !m.deleted && m.status === "planned").count(),
       db.activity.orderBy("at").reverse().limit(5).toArray(),
     ]);
-    const tonight = planned.find((m) => m.date === today && m.slot === "dinner");
-    const tonightTitle = tonight ? (await db.meals_recipes.get(String(tonight.recipe_id)))?.title : undefined;
-    return { recipes, planned: planned.length, activity, tonightTitle: tonightTitle as string | undefined };
-  }, [db, today]);
+    return { recipes, planned, activity };
+  }, [db]);
 
-  if (!h || !data) return null;
+  if (!h || !me || !data || !db || !sync) return null;
   const firstRun = data.recipes === 0 && data.planned === 0;
+  const user = { id: me.user.id, name: me.user.name, role: me.user.role };
+  const meals = !!me.flags.module_meals_enabled && h.enabled_modules.includes("meals");
+  const tasks = !!me.flags.module_todos_enabled && h.enabled_modules.includes("todos");
 
   return (
-    <main className="page h-stack" style={{ gap: 22, paddingTop: 24, paddingBottom: 32 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+    <main className="page h-stack c-page">
+      <header className="c-head">
         <div>
-          <div className="muted" style={{ fontSize: 13 }}>{greeting()}, {me!.user.name.split(" ")[0]}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h1 style={{ margin: 0, fontSize: 28 }}>{h.name}</h1>
-          </div>
+          <div className="c-head__date">{new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", timeZone: h.timezone }).format(Date.now())}</div>
+          <h1>{h.name}</h1>
         </div>
-        <Link to="/settings" className="h-icon-btn" aria-label={me!.unreadReplies ? "Settings, new reply" : "Settings"} style={{ position: "relative" }}>
-          {Icon.settings}{me!.unreadReplies > 0 && <span className="dot" aria-hidden="true" />}
+        <Link to="/settings" className="h-icon-btn" aria-label={me.unreadReplies ? "Settings, new reply" : "Settings"} style={{ position: "relative" }}>
+          {Icon.settings}{me.unreadReplies > 0 && <span className="dot" aria-hidden="true" />}
         </Link>
       </header>
 
       <Announcements />
-      {me!.unreadReplies > 0 && (
+      {me.unreadReplies > 0 && (
         <Link to="/help" className="note note--info" role="status"><strong>The Haven team replied</strong> to your message.</Link>
       )}
 
       <InstallCard />
 
       {firstRun && (
-        <section className="h-card h-stack" style={{ padding: 16 }} aria-labelledby="gs">
-          <h2 id="gs" style={{ margin: 0, fontSize: 18 }}>Get started</h2>
+        <section className="h-card h-stack c-start" aria-labelledby="gs">
+          <h2 id="gs">Get started</h2>
           <Link className="h-row" to="/m/meals/recipes/new"><span className="h-row__main"><span className="h-row__title">Add your first recipe</span><span className="h-row__sub">Start here · about 2 minutes</span></span>{Icon.chevron}</Link>
           <Link className="h-row" to="/m/meals/plan"><span className="h-row__main"><span className="h-row__title">Plan a meal</span><span className="h-row__sub">Your shopping list builds itself from what’s planned</span></span>{Icon.chevron}</Link>
           <Link className="h-row" to="/settings"><span className="h-row__main"><span className="h-row__title">Invite someone</span><span className="h-row__sub">Share the link; they sign in with Google</span></span>{Icon.chevron}</Link>
         </section>
       )}
 
-      <section className="h-stack" aria-labelledby="mods">
-        <h2 id="mods" className="h-section-title">Modules</h2>
-        {me!.flags.module_meals_enabled && h.enabled_modules.includes("meals") && <Link to="/m/meals/plan" className="h-card tile">
-          <span className="tile__icon" aria-hidden="true">{Icon.cart}</span>
-          <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>Meals &amp; Groceries</span>
-            <span className="h-row__sub">{data.tonightTitle ? `Tonight: ${data.tonightTitle}` : data.planned ? `${data.planned} meals planned` : "No meals planned yet"}</span></span>
-          {Icon.chevron}
-        </Link>}
-        {!me!.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}
-        {me!.flags.module_todos_enabled && h.enabled_modules.includes("todos") && <TasksTile />}
-        {me!.flags.show_planned_modules && <div className="planned">{[...(me!.flags.module_todos_enabled ? [] : ["Tasks"]), "Bills", "Calendar"].map((n) => <div key={n} className="planned__tile" aria-disabled="true"><strong>{n}</strong><span>Planned</span></div>)}</div>}
-      </section>
+      <Suspense fallback={null}>
+        {meals && <ConsoleMeals ctx={{ db, sync, user, household: h, today, features: me.features ?? { photos: false } }} />}
+        {!me.flags.module_meals_enabled && <p className="muted">Meals &amp; Groceries is paused for maintenance. Your data is safe.</p>}
+        {tasks && <ConsoleTasks ctx={{ db, sync, user, household: h, today, members }} />}
+      </Suspense>
 
       {data.activity.length > 0 && (
         <section aria-labelledby="act">
-          <h2 id="act" className="h-section-title">Activity</h2>
-          <ul className="plain">{data.activity.map((a) => <li key={a.id} className="activity">{String(a.text)}</li>)}</ul>
+          <div className="c-label"><h2 id="act">Activity</h2></div>
+          <ul className="plain">{data.activity.map((a) => {
+            const who = members.find((m) => m.id === a.member_id);
+            return (
+              <li key={a.id} className="c-act">
+                {who ? <span className={`td-who td-who--${hueOf(who.id)}`} aria-hidden="true">{who.name[0]}</span> : <span />}
+                <span>{String(a.text)}</span>
+                <time dateTime={new Date(Number(a.at)).toISOString()}>{ago(Number(a.at))}</time>
+              </li>
+            );
+          })}</ul>
         </section>
       )}
     </main>
   );
 }
 
-/** The Tasks tile refreshes its own counts every 30 seconds (same rhythm as the Tasks screens), so a task whose time passes turns overdue without a reload — and only the tile re-renders, not the whole console. */
-function TasksTile() {
-  const { me, db } = useSession();
-  const h = me?.household;
-  const today = h ? todayIn(h.timezone) : "";
-  const hm = useNowHM(h?.timezone ?? "UTC");
-  const counts = useLiveQuery(async () => {
-    if (!db || !h) return null;
-    const [tdLists, tdItems] = await Promise.all([
-      db.todos_lists.filter((l) => !l.deleted && !l.checklist).toArray(),
-      db.todos_items.filter((i) => !i.deleted && !i.done_at && !!i.due_date && String(i.due_date) <= today).toArray(),
-    ]);
-    const tdLive = new Set(tdLists.map((l) => l.id));
-    // Narrow the sync rows (their fields are unknown) to the shape isLate takes.
-    const tdDue = tdItems
-      .filter((i) => tdLive.has(String(i.list_id)))
-      .map((i) => ({ due_date: i.due_date, due_time: i.due_time }));
-    // "due" is due today only; overdue is counted separately (tdItems already covers due_date <= today).
-    // A task due today at a time that has passed counts as overdue, not "due today".
-    return {
-      due: tdDue.filter((i) => String(i.due_date) === today && !isLate(i, today, hm)).length,
-      overdue: tdDue.filter((i) => isLate(i, today, hm)).length,
-    };
-  }, [db, today, hm]);
-  if (!h || !counts) return null;
-  return (
-    <Link to="/m/todos" className="h-card tile">
-      <span className="tile__icon" aria-hidden="true">{Icon.list}</span>
-      <span className="h-row__main"><span className="h-row__title" style={{ fontSize: 17 }}>Tasks</span>
-        <span className="h-row__sub">{(counts.due || counts.overdue) ? `${counts.due ? `${counts.due} due today` : ""}${counts.due && counts.overdue ? " · " : ""}${counts.overdue ? `${counts.overdue} overdue` : ""}` : "Nothing due today"}</span></span>
-      {Icon.chevron}
-    </Link>
-  );
-}
+/** Same colour per person as the Tasks assignee avatar. */
+const hueOf = (id: string) => [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 4, 0) + 1;
 
-function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
+function ago(at: number) {
+  const m = Math.round((Date.now() - at) / 60_000);
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m`;
+  if (m < 24 * 60) return `${Math.round(m / 60)}h`;
+  if (m < 48 * 60) return "Yesterday";
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(at);
+}

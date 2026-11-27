@@ -24,3 +24,4 @@ export default function MealsModule({ ctx }: { ctx: ModuleCtx }) {
   );
 }
 export type { ModuleCtx };
+export { ConsoleMeals } from "./console";

@@ -16,3 +16,4 @@ export default function TodosModule({ ctx }: { ctx: ModuleCtx }) {
 }
 export type { ModuleCtx };
 export { useNowHM } from "./data";
+export { ConsoleTasks } from "./console";
