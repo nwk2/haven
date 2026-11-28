@@ -1,4 +1,4 @@
-import { Button, Field } from "@haven/ui";
+import { Button, Field, Icon, Switch } from "@haven/ui";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -37,15 +37,15 @@ export function Help() {
     <BackHeader title="Help and feedback" back="/settings" />
     <main className="page h-stack" style={{ gap: 20, paddingBottom: 40 }}>
       {items.length > 0 && <section className="h-stack" aria-labelledby="msgs"><h2 id="msgs" className="h-section-title">Your messages</h2>
-        {items.map((i) => <Link key={i.id} to={`/help/${i.id}`} className="h-row">{i.user_unread ? <span className="dot inline" aria-label="New reply" /> : <span style={{ width: 9 }} />}
-          <span className="h-row__main"><span className="h-row__title" style={{ fontWeight: i.user_unread ? 700 : 600 }}>{i.first}</span><span className="h-row__sub">{day(i.updated_at)} · {i.label}</span></span></Link>)}</section>}
+        <div className="h-card h-group">{items.map((i) => <Link key={i.id} to={`/help/${i.id}`} className="h-row">
+          <span className="h-row__main"><span className="h-row__title" style={{ fontWeight: i.user_unread ? 700 : 600 }}>{i.first}{i.user_unread ? <span className="dot inline" aria-label="New reply" /> : null}</span><span className="h-row__sub">{day(i.updated_at)} · {i.label}</span></span>{Icon.chevron}</Link>)}</div></section>}
       <section className="h-stack" aria-labelledby="faq"><h2 id="faq" className="h-section-title">Quick answers</h2>
-        {FAQ.map(([q, a]) => <details key={q} className="h-card faq"><summary>{q}</summary><p>{a}</p></details>)}</section>
+        <div className="h-card h-group">{FAQ.map(([q, a]) => <details key={q} className="faq"><summary>{q}</summary><p>{a}</p></details>)}</div></section>
       <section className="h-stack" aria-labelledby="fb"><h2 id="fb" className="h-section-title">Send feedback</h2>
         <div role="radiogroup" aria-label="Kind of feedback" className="chips">{KINDS.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={kind === k} className="h-chip" onClick={() => setKind(k)}>{l}</button>)}</div>
         <Field label="What happened?" textarea rows={4} value={text} onChange={(e) => { setText(e.target.value); setError(undefined); setSent(false); }} placeholder={KINDS.find((k) => k[0] === kind)![2]} error={error} />
-        <label className="chips" style={{ alignItems: "flex-start" }}><input type="checkbox" checked={device} onChange={(e) => setDevice(e.target.checked)} style={{ width: 22, height: 22 }} />
-          <span><strong>Include device details</strong><br /><span className="muted" style={{ fontSize: 12 }}>App version, device and browser, sync status. No recipes or lists.</span></span></label>
+        <div className="h-row help-device"><span className="h-row__main"><span className="h-row__title">Include device details</span><span className="h-row__sub">App version, device and browser, sync status. No recipes or lists.</span></span>
+          <Switch label="Include device details" checked={device} onChange={setDevice} /></div>
         {sent ? <p role="status" className="note note--info">Thanks, sent. You’ll see any reply under Your messages.</p> : <Button onClick={send}>Send</Button>}
       </section>
     </main>

@@ -47,62 +47,69 @@ export function Settings() {
     <main className="page h-stack" style={{ gap: 22, paddingBottom: 40 }}>
       <section className="h-stack" aria-labelledby="acc">
         <h2 id="acc" className="h-section-title">Account</h2>
-        <div className="h-row"><span className="avatar" aria-hidden="true">{me.user.name[0]}</span>
+        <div className="h-card h-group"><div className="h-row"><span className="avatar" aria-hidden="true">{me.user.name[0]}</span>
           <span className="h-row__main"><span className="h-row__title">{me.user.name}</span><span className="h-row__sub">{me.user.email}</span></span><span className="h-badge badge--neutral">Google</span></div>
-        <a className="h-row settings-row" href="/api/export" download><span className="h-row__main"><span className="h-row__title">Export my data</span><span className="h-row__sub">Your profile and {h.name}’s recipes, plans and lists</span></span></a>
-        {row("Delete my account", "Removes you and your profile for good", () => open("deleteAccount"), { danger: true })}
+        <a className="h-row settings-row" href="/api/export" download><span className="h-row__main"><span className="h-row__title">Export my data</span><span className="h-row__sub">Your profile and {h.name}’s recipes, plans and lists</span></span>{Icon.chevron}</a></div>
       </section>
 
       <section className="h-stack" aria-labelledby="hh">
         <h2 id="hh" className="h-section-title">Household · {h.name}</h2>
         {/* You're shown under Account; here only the other members. Their role matters only when it isn't you who owns. */}
+        <div className="h-card h-group">
         {others.map((m) => (
           <div key={m.id} className="h-row">
             <span className="avatar" aria-hidden="true">{m.name[0]}</span>
             <span className="h-row__main"><span className="h-row__title">{m.name}</span>
               <span className="h-row__sub">{!owner && m.role === "owner" ? "Owner · ask them to change household settings" : `Joined ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(m.joined_at)}`}</span></span>
-            {owner && <Button variant="secondary" onClick={() => open("remove", { member: m })}>Remove</Button>}
+            {owner && <Button variant="text" className="danger-text" onClick={() => open("remove", { member: m })} aria-label={`Remove ${m.name}`}>Remove</Button>}
           </div>
         ))}
         <InviteRow owner={owner} />
         {row("Rename household", h.name, () => open("rename", { text: h.name }), { ownerOnly: true })}
         {row("Time zone", `${h.timezone} · decides “today” for everyone`, () => open("timezone", { text: h.timezone }), { ownerOnly: true })}
         {row("Measurements", h.measurement === "metric" ? "Metric (g, kg, ml, l)" : "US customary (oz, lb, cups)", () => open("units", { text: h.measurement }), { ownerOnly: true })}
+        </div>
       </section>
 
       <section className="h-stack" aria-labelledby="mod">
         <h2 id="mod" className="h-section-title">Modules</h2>
-        <div className="module-card h-card">
+        <div className="h-card h-group">
           <div className="h-row"><span className="h-row__main"><span className="h-row__title">Meals &amp; Groceries</span><span className="h-row__sub">On for everyone in {h.name}</span></span>
             {owner && <Switch label="Meals and Groceries module" checked={h.enabled_modules.includes("meals")} onChange={() => open("modules")} />}</div>
           {owner && h.enabled_modules.includes("meals") && (
-            <button type="button" className="h-row settings-row module-card__setting" onClick={() => open("servings", { num: h.default_servings ?? 2 })}>
+            <button type="button" className="h-row settings-row" onClick={() => open("servings", { num: h.default_servings ?? 2 })}>
               <span className="h-row__main"><span className="h-row__title">Usual servings</span><span className="h-row__sub">{h.default_servings ? `New meals start at ${h.default_servings}` : "New meals use each recipe’s servings"}</span></span>{Icon.chevron}
             </button>
           )}
-        </div>
         {me.flags.module_todos_enabled && (
-          <div className="module-card h-card">
             <div className="h-row"><span className="h-row__main"><span className="h-row__title">Tasks</span><span className="h-row__sub">{h.enabled_modules.includes("todos") ? `On for everyone in ${h.name}` : "Shared lists: chores, packing, household jobs"}</span></span>
               {owner && <Switch label="Tasks module" checked={h.enabled_modules.includes("todos")} onChange={() => open("modules-todos")} />}</div>
-          </div>
         )}
+        </div>
       </section>
 
       <section className="h-stack" aria-labelledby="app">
         <h2 id="app" className="h-section-title">Appearance and app</h2>
-        <Link className="h-row settings-row" to="/settings/appearance"><span className="h-row__main"><span className="h-row__title">Appearance</span><span className="h-row__sub">{{ market: "Market Green", tomato: "Tomato & Ink", night: "Night Utility" }[me.user.theme]} · {me.user.mode === "system" ? "follows your device" : me.user.mode}</span></span>{Icon.chevron}</Link>
+        <div className="h-card h-group"><Link className="h-row settings-row" to="/settings/appearance"><span className="h-row__main"><span className="h-row__title">Appearance</span><span className="h-row__sub">{{ market: "Market Green", tomato: "Tomato & Ink", night: "Night Utility" }[me.user.theme]} · {me.user.mode === "system" ? "follows your device" : me.user.mode}</span></span>{Icon.chevron}</Link>
         {!matchMedia("(display-mode: standalone)").matches && <Link className="h-row settings-row" to="/install"><span className="h-row__main"><span className="h-row__title">Install Haven on this device</span><span className="h-row__sub">Full screen, works offline</span></span>{Icon.chevron}</Link>}
         <Link className="h-row settings-row" to="/settings/notifications"><span className="h-row__main"><span className="h-row__title">Notifications</span><span className="h-row__sub">Reminders and the morning digest</span></span>{Icon.chevron}</Link>
-        <Link className="h-row settings-row" to="/help"><span className="h-row__main"><span className="h-row__title">Help and feedback{me.unreadReplies > 0 && <span className="dot inline" aria-label="new reply" />}</span><span className="h-row__sub">Quick answers, or tell us what’s not working</span></span>{Icon.chevron}</Link>
+        <Link className="h-row settings-row" to="/help"><span className="h-row__main"><span className="h-row__title">Help and feedback{me.unreadReplies > 0 && <span className="dot inline" aria-label="new reply" />}</span><span className="h-row__sub">Quick answers, or tell us what’s not working</span></span>{Icon.chevron}</Link></div>
       </section>
 
       <section className="h-stack">
         <Button variant="secondary" block onClick={() => signOut().then(() => nav("/login"))}>Sign out</Button>
-        {row("Sign out of all devices", "", () => open("signoutAll"), { danger: true })}
+      </section>
+
+      {/* Everything that can't be casually undone lives together, last. */}
+      <section className="h-stack" aria-labelledby="leave">
+        <h2 id="leave" className="h-section-title">Leave or delete</h2>
+        <div className="h-card h-group">
+        {row("Sign out of all devices", "Including this one", () => open("signoutAll"))}
         {owner && others.length > 0 && row("Transfer ownership", "Make another member the Owner", () => open("transfer", { member: others[0] }))}
         {row("Leave household", owner && others.length ? "Transfer ownership first" : "", () => open("leave"), { danger: true })}
         {row("Delete household", "Everyone loses access; restorable for 30 days", () => open("delete"), { danger: true, ownerOnly: true })}
+        {row("Delete my account", "Removes you and your profile for good", () => open("deleteAccount"), { danger: true })}
+        </div>
         <p className="muted" style={{ fontSize: 12 }}><a href="/privacy">Privacy policy</a> · <a href="/terms">Terms</a> · Version {__APP_VERSION__}</p>
       </section>
     </main>

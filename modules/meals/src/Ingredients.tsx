@@ -1,7 +1,7 @@
 import { Button, Dialog, Field, Select } from "@haven/ui";
 import { useState } from "react";
 import { useCtx } from "./ctx";
-import { SECTIONS, useMealsData, useMutate, type Ingredient } from "./data";
+import { plural, SECTIONS, useMealsData, useMutate, type Ingredient } from "./data";
 import { DetailHeader } from "./shell";
 
 /** Ingredient catalog: rename, change section, merge duplicates (Owner). */
@@ -31,18 +31,18 @@ export function Ingredients() {
     <DetailHeader title="Ingredients" back="/m/meals/recipes" />
     <main className="page h-stack" style={{ paddingBottom: 40 }}>
       <label className="h-field"><span className="h-sr">Search ingredients</span><input className="h-input" type="search" placeholder={`Search ${all.length} ingredients`} value={q} onChange={(e) => setQ(e.target.value)} /></label>
-      {dup && <section className="note note--trip h-stack"><strong>Possible duplicate</strong><span><strong>{dup[1].name}</strong> ({uses(dup[1].id)} recipes) looks like <strong>{dup[0].name}</strong> ({uses(dup[0].id)} recipes).</span>
+      {dup && <section className="note note--trip h-stack"><strong>Possible duplicate</strong><span><strong>{dup[1].name}</strong> ({plural(uses(dup[1].id), "recipe")}) looks like <strong>{dup[0].name}</strong> ({plural(uses(dup[0].id), "recipe")}).</span>
         <div className="row-actions"><Button onClick={() => setMerge(uses(dup[0].id) >= uses(dup[1].id) ? [dup[1], dup[0]] : dup)}>Merge…</Button><Button variant="secondary" onClick={() => setDismissed([...dismissed, dup[0].id + dup[1].id])}>Not the same</Button></div></section>}
       {SECTIONS.map(([k, label]) => {
         const items = shown.filter((i) => i.section === k).sort((a, b) => a.name.localeCompare(b.name));
         if (!items.length) return null;
-        return (<section key={k}><h2 className="h-section-title">{label}</h2>{items.map((i) => (
-          <button key={i.id} className="h-row settings-row" onClick={() => setEdit(i)}><span className="h-row__main"><span className="h-row__title">{i.name}</span></span><span className="muted" style={{ fontSize: 12 }}>{uses(i.id)} recipes</span></button>))}</section>);
+        return (<section key={k}><h2 className="h-section-title">{label}</h2><div className="h-card h-group">{items.map((i) => (
+          <button key={i.id} className="h-row settings-row" onClick={() => setEdit(i)}><span className="h-row__main"><span className="h-row__title">{i.name}</span></span><span className="muted ing-uses">{uses(i.id) ? plural(uses(i.id), "recipe") : "Unused"}</span></button>))}</div></section>);
       })}
-      <span className="muted" style={{ fontSize: 12 }}>Tap an ingredient to rename it or change its store section.</span>
+      <span className="muted ing-uses">Tap an ingredient to rename it or change its store section.</span>
     </main>
     {edit && <EditIngredient ing={edit} onClose={() => setEdit(null)} />}
-    {merge && <Dialog title={`Merge “${merge[0].name}” into “${merge[1].name}”?`} body={`The ${uses(merge[0].id)} recipes using ${merge[0].name} will use ${merge[1].name}. Amounts and units stay as written; matching list lines combine.`} onClose={() => setMerge(null)}>
+    {merge && <Dialog title={`Merge “${merge[0].name}” into “${merge[1].name}”?`} body={`${uses(merge[0].id) === 1 ? "The recipe" : `The ${uses(merge[0].id)} recipes`} using ${merge[0].name} will use ${merge[1].name}. Amounts and units stay as written; matching list lines combine.`} onClose={() => setMerge(null)}>
       <Button onClick={() => doMerge(merge[0], merge[1])}>Merge</Button><Button variant="text" onClick={() => setMerge(null)}>Cancel</Button></Dialog>}
   </>);
 }

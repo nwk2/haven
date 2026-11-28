@@ -3,7 +3,7 @@ import "@haven/ui/ui.css";
 import "./app.css";
 import { lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SyncPill } from "./components/SyncPill";
 import { Appearance } from "./screens/Appearance";
 import { Console } from "./screens/Console";
@@ -25,7 +25,7 @@ function Todos() {
   const [members, setMembers] = useState<{ id: string; name: string }[] | null>(null);
   useEffect(() => { api<{ members: { id: string; name: string }[] }>("/api/members").then((r) => setMembers(r.members)).catch(() => setMembers([])); }, []);
   if (!me?.household || !db || !sync || !members) return null;
-  if (!me.household.enabled_modules.includes("todos") || me.flags.module_todos_enabled !== true) return <Placeholder title="Tasks is turned off" />;
+  if (!me.household.enabled_modules.includes("todos") || me.flags.module_todos_enabled !== true) return <Placeholder title="Tasks is turned off" body="The household Owner can turn it on in Settings › Modules." />;
   const ctx = { db, sync, user: { id: me.user.id, name: me.user.name, role: me.user.role }, household: me.household, today: todayIn(me.household.timezone), members };
   return <Suspense fallback={null}><TodosModule ctx={ctx} /></Suspense>;
 }
@@ -33,13 +33,16 @@ function Todos() {
 function Meals() {
   const { me, db, sync } = useSession();
   if (!me?.household || !db || !sync) return null;
-  if (!me.household.enabled_modules.includes("meals") || me.flags.module_meals_enabled === false) return <Placeholder title="Meals & Groceries is turned off" />;
+  if (!me.household.enabled_modules.includes("meals") || me.flags.module_meals_enabled === false) return <Placeholder title="Meals & Groceries is turned off" body="The household Owner can turn it on in Settings › Modules." />;
   const ctx = { db, sync, user: { id: me.user.id, name: me.user.name, role: me.user.role }, household: me.household, today: todayIn(me.household.timezone), features: me.features ?? { photos: false } };
   return <Suspense fallback={null}><MealsModule ctx={ctx} /></Suspense>;
 }
 
 function SignIn() {
-  const error = new URLSearchParams(useLocation().search).get("error");
+  const search = new URLSearchParams(useLocation().search);
+  const error = search.get("error");
+  // Token sign-in is for test probes, not people: only shown at /login?token.
+  const tokenSignIn = search.has("token");
   const [token, setToken] = useState("");
   const [tokenError, setTokenError] = useState("");
   const signInWithToken = () => {
@@ -58,9 +61,9 @@ function SignIn() {
       {error === "cancelled" && <p role="alert" className="note note--warn">Sign-in didn’t finish. Nothing was changed. Try again.</p>}
       {sessionStorage.getItem(PENDING_INVITE) && <p className="note note--warn">You’ve been invited to a household on Haven. Sign in to accept.</p>}
       <p className="muted">One shared place for your household — starting with meals and groceries.</p>
-      <a className="h-btn h-btn--secondary" href="/auth/google">Continue with Google</a>
+      <a className="h-btn h-btn--primary" href="/auth/google">Continue with Google</a>
       <p className="muted" style={{ fontSize: 12 }}>We use only your Google name, email and photo.</p>
-      <details style={{ width: "100%", maxWidth: 320 }}>
+      {tokenSignIn && <details open style={{ width: "100%", maxWidth: 320 }}>
         <summary className="muted" style={{ cursor: "pointer", fontSize: 13 }}>Use a session token</summary>
         <div className="h-stack" style={{ marginTop: 12 }}>
           <input
@@ -78,13 +81,19 @@ function SignIn() {
           {tokenError && <p role="alert" className="note note--warn" style={{ margin: 0 }}>{tokenError}</p>}
           <button id="token-signin" className="h-btn h-btn--primary" type="button" onClick={signInWithToken} style={{ width: "100%", justifyContent: "center" }}>Sign in with token</button>
         </div>
-      </details>
+      </details>}
     </main>
   );
 }
 
-function Placeholder({ title }: { title: string }) {
-  return <main className="page" style={{ paddingTop: 24 }}><h1>{title}</h1><p className="muted">Coming next in the build.</p></main>;
+function Placeholder({ title, body }: { title: string; body: string }) {
+  return (
+    <main className="page h-stack" style={{ paddingTop: 24 }}>
+      <h1 style={{ margin: 0 }}>{title}</h1>
+      <p className="muted" style={{ margin: 0 }}>{body}</p>
+      <Link className="h-btn h-btn--primary" to="/" style={{ alignSelf: "flex-start" }}>Go home</Link>
+    </main>
+  );
 }
 
 /** Household scheduled for deletion (canvas › Access states). */
@@ -146,7 +155,7 @@ function App() {
       <Route path="/m/meals/*" element={<Gate><Meals /></Gate>} />
       <Route path="/m/todos/*" element={<Gate><Todos /></Gate>} />
       <Route path="/settings/notifications" element={<Gate><Notifications /></Gate>} />
-      <Route path="*" element={<Placeholder title="This page doesn’t exist" />} />
+      <Route path="*" element={<Placeholder title="This page doesn’t exist" body="The link may be old, or what it pointed to was deleted." />} />
     </Routes>
   </>);
 }

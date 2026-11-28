@@ -34,7 +34,8 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .swatches i:nth-child(3) { background: var(--haven-trip-1); }
 /* ── Meals & Groceries ── */
 .mod-main { padding-bottom: 96px; }
-.linklike { border: 0; background: none; color: var(--haven-accent); font: inherit; padding: 0; cursor: pointer; text-decoration: underline; }
+.linklike { border: 0; background: none; color: var(--haven-accent); font: inherit; font-weight: 600; padding: 0; cursor: pointer; text-decoration: none; }
+.linklike:hover, .linklike:focus-visible { text-decoration: underline; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-around; }
@@ -58,13 +59,6 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .steps { margin: 8px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
 .note--trip { background: var(--haven-trip-1); }
 .smart__row { display: flex; gap: 8px; align-items: center; }
-.line { padding: 4px 4px 4px 0; }
-.line--warn { border-color: var(--haven-accent-2); }
-.line--hint { border-color: var(--haven-accent-2); }
-.line__main { display: flex; align-items: center; gap: 4px; }
-.line__move { display: flex; flex-direction: column; gap: 4px; }
-.line__text { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; display: flex; flex-direction: column; gap: 3px; cursor: pointer; padding: 6px 0; }
-.line__note { padding: 6px 12px 8px 40px; font-size: 12px; font-weight: 600; background: var(--haven-attention); border-radius: 0 0 var(--haven-shape-radius) var(--haven-shape-radius); margin: 4px -4px -4px 0; }
 .line__edit { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px 12px; }
 .line__edit > :nth-child(3), .line__edit > :nth-child(4) { grid-column: 1 / -1; }
 .step-edit { display: flex; gap: 10px; align-items: flex-start; }
@@ -82,13 +76,14 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 @media (min-width: 1024px) {
   .page { max-width: 960px; margin: 0 auto; }
   .add-bar { max-width: none; }
-  .fab { right: 16px; }
+  /* Desktop has room: the action sits at the top of the list column instead of floating at the window edge. */
+  .fab { position: static; align-self: flex-end; order: -1; }
   .h-tabbar { left: 0; right: auto; top: 0; bottom: 0; width: 200px; grid-auto-flow: row; grid-auto-rows: 56px; align-content: start; border-top: 0; border-right: 1px solid var(--haven-border); padding-top: 96px; }
   .h-tabbar a { flex-direction: row; justify-content: flex-start; padding: 0 20px; font-size: 14px; min-height: 56px; }
   .mod-header, .mod-main { margin-left: 200px; }
 }
 .faq summary { min-height: 48px; display: flex; align-items: center; padding: 0 14px; font-weight: 600; cursor: pointer; }
-.faq p { margin: 0 14px 12px; font-size: 14px; color: var(--haven-muted); }
+.faq p { margin: 0 14px 12px; font-size: var(--haven-type-small); color: var(--haven-muted); }
 .bubble { max-width: 85%; align-self: flex-start; background: var(--haven-surface); border: 1px solid var(--haven-border); border-radius: 16px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .bubble strong { font-size: 11px; }
 .bubble--me { align-self: flex-end; background: var(--haven-accent); color: var(--haven-on-accent); border-color: var(--haven-accent); }
@@ -98,13 +93,12 @@ h1 { font-family: var(--haven-font-heading); font-weight: var(--haven-shape-head
 .hero-photo { width: calc(100% + 32px); margin: -16px -16px 0; height: 200px; object-fit: cover; }
 img.thumb { object-fit: cover; }
 @media (min-width: 1024px) {
-  .page.mod-main { max-width: 1240px; }
+  /* List screens keep a readable column; Plan's seven-day grid gets the width. */
+  .page.mod-main { max-width: 720px; margin-right: 0; }
+  .mod-header > * { max-width: 720px; }
+  .page.mod-main.mod--wide { max-width: 1240px; }
+  .mod-header.mod--wide > * { max-width: 1240px; }
 }
-/* A module and its own settings, as one card (Settings › Modules). */
-.module-card { padding: 0; overflow: hidden; }
-.module-card > .h-row { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
-.module-card > .h-row + .h-row { border-top: 1px solid var(--haven-border); }
-.module-card__setting { padding-left: 24px; }
 
 /* List progress: bought / have it as segments of one bar. */
 .list-progress { display: flex; flex-direction: column; gap: 6px; }
@@ -243,3 +237,42 @@ button.day--empty { cursor: pointer; }
 .c-act:first-child { border-top: 0; }
 .c-act .td-who { margin: 0; }
 .c-act time { font-size: var(--haven-type-meta); color: var(--haven-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ── Shopping: one group per store section ── */
+.shop-sec { margin: 0; font-size: var(--haven-type-body); }
+.shop-sec__count { font-size: var(--haven-type-meta); color: var(--haven-muted); }
+.shop-status { font-size: var(--haven-type-meta); }
+.shop-status:empty { display: none; }
+.h-group .item { gap: 0; align-items: center; padding-right: 4px; }
+.h-group .item--done { min-height: 48px; }
+
+/* ── Recipes ── */
+.recipes__manage { align-self: flex-end; font-size: var(--haven-type-small); }
+.recipe__title { margin: 0; font-size: var(--haven-type-screen-title); }
+.recipe__makes { font-size: var(--haven-type-small); }
+.ing-uses { font-size: var(--haven-type-meta); }
+
+
+/* ── Recipe editor ── */
+.editor__h { margin: 0; font-size: var(--haven-type-body); font-weight: 700; }
+.editor__aside { font-size: var(--haven-type-small); }
+.editor__add { align-self: flex-start; min-height: 44px; font-size: var(--haven-type-small); }
+.line--warn, .line--hint { box-shadow: inset 3px 0 0 var(--haven-accent-2); }
+.line__text { width: 100%; min-height: 52px; display: grid; grid-template-columns: 72px minmax(0, 1fr) 20px; gap: 10px; align-items: center;
+  padding: 8px 12px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.line__amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.line__name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.line__meta { font-size: var(--haven-type-meta); color: var(--haven-muted); }
+.line__meta:empty { display: none; }
+.line__chev { color: var(--haven-muted); display: flex; transition: transform var(--haven-motion-check, 120ms); }
+.line--open .line__chev { transform: rotate(90deg); }
+.line__note { padding: 0 12px 10px 94px; font-size: var(--haven-type-meta); font-weight: 600; color: var(--haven-ink); }
+.line__actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.line__actions .danger-text { margin-left: auto; }
+.step-edit .h-icon-btn { font-size: var(--haven-type-title); color: var(--haven-muted); }
+.help-device { padding-left: 0; padding-right: 0; border: 0; background: transparent; }
+.install__other { font-size: var(--haven-type-small); white-space: nowrap; min-height: 44px; }
+
+/* ── Tasks ── */
+.td-newlist { align-self: flex-start; min-height: 44px; margin-top: 4px; font-size: var(--haven-type-small); }
+.td-sheet-delete { align-self: center; }

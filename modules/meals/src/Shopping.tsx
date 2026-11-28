@@ -82,8 +82,9 @@ export function Shopping() {
   return (
     <ModuleShell title="Shopping" tab="shopping">
       <div className="h-sr" aria-live="polite">{announce}</div>
-      <div className="spread"><span className="muted" role="status" style={{ fontSize: 12 }}>{status.state === "offline" ? `Offline · ${status.pending} changes waiting` : status.state === "synced" ? "Synced" : "Syncing…"}</span></div>
       <ListProgress p={progressOf(list)} strong />
+      {/* Only say something when it isn't simply up to date. */}
+      <span className="muted shop-status" role="status">{status.state === "offline" ? `Offline · ${status.pending} changes waiting` : status.state === "synced" ? "" : "Syncing…"}</span>
       {!total && <div className="empty-state"><h2>Nothing to buy yet</h2><p className="muted">No meals are planned. Plan some, or add extra items below.</p><Link className="h-btn h-btn--primary" to="/m/meals/plan">Go to Plan</Link></div>}
       {SECTIONS.map(([sec, label]) => {
         const rows = list.rows.filter((r) => sectionOf(r) === sec && r.state.kind !== "inCart" && r.state.kind !== "haveIt");
@@ -91,23 +92,23 @@ export function Shopping() {
         if (!rows.length && !extras.length) return null;
         return (
           <section key={sec} className="h-stack" aria-labelledby={`s-${sec}`}>
-            <div className="spread"><h2 id={`s-${sec}`} style={{ margin: 0, fontSize: 15 }}>{label}</h2><span className="muted" style={{ fontSize: 12 }}>{sectionCount(rows.length + extras.length, 0)}</span></div>
-            {rows.map((r) => <ItemLine key={r.line.key} d={d} row={r} isNew={!!seen.current && !seen.current.has(r.line.key)} onToggle={() => toggle(r)} onMore={() => setSheet(r)} />)}
-            {extras.map((e) => <ExtraLine key={e.id} item={e} onToggle={() => m.state(e.id, { checked: 1, checked_by: user.id, checked_at: Date.now() })} onMore={() => setExtraSheet(e)} />)}
+            <div className="spread"><h2 id={`s-${sec}`} className="shop-sec">{label}</h2><span className="shop-sec__count">{sectionCount(rows.length + extras.length, 0)}</span></div>
+            <div className="h-card h-group">{rows.map((r) => <ItemLine key={r.line.key} d={d} row={r} isNew={!!seen.current && !seen.current.has(r.line.key)} onToggle={() => toggle(r)} onMore={() => setSheet(r)} />)}
+            {extras.map((e) => <ExtraLine key={e.id} item={e} onToggle={() => m.state(e.id, { checked: 1, checked_by: user.id, checked_at: Date.now() })} onMore={() => setExtraSheet(e)} />)}</div>
           </section>
         );
       })}
       {boughtRows.length + boughtExtras.length > 0 && <section className="h-stack" aria-labelledby="s-bought">
-        <div className="spread"><h2 id="s-bought" style={{ margin: 0, fontSize: 15 }}>Bought · {boughtRows.length + boughtExtras.length}</h2>
-          <Button variant="secondary" onClick={clearBought}>Clear bought</Button></div>
-        {boughtRows.map((r) => <ItemLine key={r.line.key} d={d} row={r} done onToggle={() => toggle(r)} onMore={() => setSheet(r)} />)}
-        {boughtExtras.map((e) => <ExtraLine key={e.id} item={e} done onToggle={() => m.state(e.id, { checked: 0 })} onMore={() => setExtraSheet(e)} />)}
+        <div className="spread"><h2 id="s-bought" className="shop-sec">Bought · {boughtRows.length + boughtExtras.length}</h2>
+          <button className="h-link" onClick={clearBought}>Clear bought</button></div>
+        <div className="h-card h-group">{boughtRows.map((r) => <ItemLine key={r.line.key} d={d} row={r} done onToggle={() => toggle(r)} onMore={() => setSheet(r)} />)}
+        {boughtExtras.map((e) => <ExtraLine key={e.id} item={e} done onToggle={() => m.state(e.id, { checked: 0 })} onMore={() => setExtraSheet(e)} />)}</div>
       </section>}
       {haveItRows.length > 0 && <details className="have-it"><summary>Have it · {haveItRows.length} hidden</summary>
         {haveItRows.map((r) => <button key={r.line.key} className="h-row" style={{ width: "100%" }} onClick={async () => { for (const s of r.line.sources) await m.mealState(s.mealId, r.line.key, { have_it: 0 }); }}>{ingredientOf(d, r.line.ingredientId)?.name} · Undo</button>)}</details>}
       <form onSubmit={async (e) => { e.preventDefault(); if (!draft.trim()) return; const id = `extra_${newId()}`; await m.state(id, { meal_id: null, key: id, label: nameCase(draft), section: "other" }); setDraft(""); }}>
         <label className="h-sr" htmlFor="extra">Add an extra item</label>
-        <div style={{ display: "flex", gap: 8 }}><input id="extra" className="h-input" style={{ flex: 1 }} placeholder="Add an extra item, e.g. paper towels" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <div style={{ display: "flex", gap: 8 }}><input id="extra" className="h-input" style={{ flex: 1 }} placeholder="Extra item, e.g. foil" value={draft} onChange={(e) => setDraft(e.target.value)} />
           <Button type="submit">Add</Button></div>
       </form>
       {sheet && <ItemSheet d={d} row={sheet} onClose={() => setSheet(null)} />}

@@ -111,8 +111,8 @@ export function ItemSheet({ item, list, onClose, setUndo }: { item: TItem; list:
         {!list.checklist && f.repeat && f.due_date && !item.done_at && (
           <Button variant="secondary" block onClick={() => { const next = nextDue(f.repeat!, f.due_date!, today); const was = item.due_date ?? null; save({ due_date: next }); setUndo({ text: `Skipped. Next: ${dayLabel(next, today)}`, undo: () => void m.item(item.id, { due_date: was }) }); onClose(); }}>Skip this time</Button>
         )}
-        <Button variant="secondary" className="td-danger" block onClick={() => { void m.item(item.id, { deleted: 1 }); setUndo({ text: "Deleted", undo: () => void m.item(item.id, { deleted: 0 }) }); onClose(); }}>Delete</Button>
         <Button variant={dateDirty ? "primary" : "secondary"} block onClick={() => { commitDate(); onClose(); }}>Done</Button>
+        <Button variant="text" className="td-danger td-sheet-delete" onClick={() => { void m.item(item.id, { deleted: 1 }); setUndo({ text: "Deleted", undo: () => void m.item(item.id, { deleted: 0 }) }); onClose(); }}>Delete</Button>
       </div>
     </Sheet>
   );

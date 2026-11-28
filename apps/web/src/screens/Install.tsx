@@ -25,7 +25,7 @@ export function Install() {
     <BackHeader title="Install Haven" back="/settings" />
     <main className="page narrow h-stack" style={{ gap: 14 }}>
       <div className="spread"><img src="/icon-192-maskable.png" alt="" width={48} height={48} className="mark" /><div style={{ flex: 1 }}><h2 style={{ margin: 0, fontSize: 20 }}>{p.title}</h2><span className="muted" style={{ fontSize: 13 }}>Opens full screen and works offline in the store.</span></div></div>
-      <div className="spread"><span className="muted" style={{ fontSize: 12 }}>Detected: {P[detectInstallPlatform()].name}</span><Button variant="secondary" aria-expanded={picker} onClick={() => setPicker(!picker)}>Not your device?</Button></div>
+      <div className="spread"><span className="muted" style={{ fontSize: 12 }}>Detected: {P[detectInstallPlatform()].name}</span><button className="h-link install__other" aria-expanded={picker} onClick={() => setPicker(!picker)}>Not your device?</button></div>
       {picker && <div role="radiogroup" aria-label="Choose your device" className="chips">{(Object.keys(P) as InstallPlatform[]).map((k) => <button key={k} role="radio" aria-checked={platform === k} className="h-chip" onClick={() => { setPlatform(k); setPicker(false); }}>{P[k].name}</button>)}</div>}
       {p.native && canPrompt && <Button block onClick={async () => { await promptInstall(); nav("/"); }}>Install now</Button>}
       {p.steps && <ol className="plain h-stack">{p.steps.map(([a, b], i) => <li key={a} className="h-row"><span className="step-num" style={{ marginTop: 0 }}>{i + 1}</span><span className="h-row__main"><span className="h-row__title">{a}</span><span className="h-row__sub">{b}</span></span></li>)}</ol>}

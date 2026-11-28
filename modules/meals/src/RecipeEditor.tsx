@@ -1,5 +1,5 @@
 import { familyOf, parseLine, parseList, type ParsedLine } from "@haven/meals-core";
-import { Button, Dialog, Field, Select, Sheet, Stepper } from "@haven/ui";
+import { Button, Dialog, Field, Icon, Select, Sheet, Stepper } from "@haven/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useCtx } from "./ctx";
@@ -20,6 +20,8 @@ export function RecipeEditor() {
   const [recipeId] = useState(id ?? newId());
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState<"saved" | "pending" | "invalid">("saved");
+  // Don't scold an untouched form: the title error waits until the field has been left empty.
+  const [titleTouched, setTitleTouched] = useState(false);
   const [line, setLine] = useState("");
   const [group, setGroup] = useState("");
   const [queue, setQueue] = useState<Pending[]>([]);
@@ -101,11 +103,11 @@ export function RecipeEditor() {
       {others.length > 0 && <div className="note note--info" role="status">{others.map((o) => o.name).join(" and ")} {others.length === 1 ? "is" : "are"} editing this recipe too. The last change to each field wins.</div>}
       {features.photos && <PhotoField recipeId={recipeId} photoKey={draft.photo_key ?? null} onChange={(k) => set({ photo_key: k })} />}
       {planned.length > 0 && <div className="note note--trip">{`Planned ${planned.map((p) => `${fmt(p.date)} ${p.slot}`).join(", ")}. Saving updates its shopping list.`}</div>}
-      <Field label="Title" value={draft.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Black bean tacos" error={!draft.title.trim() && saved === "invalid" ? "Add a title to save this recipe" : undefined} />
+      <Field label="Title" value={draft.title} onChange={(e) => set({ title: e.target.value })} onBlur={() => setTitleTouched(true)} placeholder="e.g. Black bean tacos" error={!draft.title.trim() && titleTouched ? "Add a title to save this recipe" : undefined} />
       <div className="h-row"><span className="h-row__main"><span className="h-row__title">Recipe makes</span><span className="h-row__sub">Set servings per meal when planning</span></span><Stepper label="Servings" value={draft.base_servings} max={50} onChange={(n) => set({ base_servings: n })} /></div>
 
       <section className="h-stack" aria-labelledby="ingh">
-        <div className="spread"><h2 id="ingh" style={{ margin: 0, fontSize: 17 }}>Ingredients</h2><Button variant="secondary" onClick={() => setPasteOpen(true)}>Paste list</Button></div>
+        <div className="spread"><h2 id="ingh" className="editor__h">Ingredients</h2><button className="h-link editor__aside" onClick={() => setPasteOpen(true)}>Paste a list</button></div>
         <div className="h-card h-stack smart" style={{ padding: 8 }}>
           <form className="smart__row" onSubmit={(e) => { e.preventDefault(); if (parsed?.name) { submit([{ parsed, group }]); setLine(""); } }}>
             <label className="h-sr" htmlFor="smart">Add an ingredient</label>
@@ -126,20 +128,20 @@ export function RecipeEditor() {
           const rows = draft.ingredients.map((l, i) => ({ l, i })).filter(({ l }) => (l.group ?? "") === g);
           if (!rows.length) return null;
           return (<div key={g} className="h-stack">{g && <strong className="muted">{g}</strong>}
-            {rows.map(({ l, i }, pos) => <LineRow key={i} d={d} line={l} first={pos === 0} last={pos === rows.length - 1} recipeId={recipeId} onChange={(p) => updateLine(i, p)} onMove={(dir) => move(i, dir)} onRemove={() => remove(i)} />)}
+            <div className="h-card h-group">{rows.map(({ l, i }, pos) => <LineRow key={i} d={d} line={l} first={pos === 0} last={pos === rows.length - 1} recipeId={recipeId} onChange={(p) => updateLine(i, p)} onMove={(dir) => move(i, dir)} onRemove={() => remove(i)} />)}</div>
           </div>);
         })}
-        <Button variant="text" onClick={() => setGroupOpen(true)}>+ Add group</Button>
+        <button className="h-link editor__add" onClick={() => setGroupOpen(true)}>+ Add group</button>
       </section>
 
       <section className="h-stack" aria-labelledby="sth">
-        <h2 id="sth" style={{ margin: 0, fontSize: 17 }}>Steps</h2>
+        <h2 id="sth" className="editor__h">Steps</h2>
         {draft.steps.map((s, i) => (
           <div key={i} className="step-edit"><span className="step-num" aria-hidden="true">{i + 1}</span>
             <textarea className="h-input" aria-label={`Step ${i + 1}`} rows={2} value={s} onChange={(e) => set({ steps: draft.steps.map((x, j) => (j === i ? e.target.value : x)) })} />
             <button className="h-icon-btn" aria-label={`Remove step ${i + 1}`} onClick={() => set({ steps: draft.steps.filter((_, j) => j !== i) })}>×</button></div>
         ))}
-        <Button variant="secondary" onClick={() => set({ steps: [...draft.steps, ""] })}>+ Add step</Button>
+        <button className="h-link editor__add" onClick={() => set({ steps: [...draft.steps, ""] })}>+ Add step</button>
       </section>
 
       <section className="h-stack" aria-labelledby="tgh">
@@ -172,15 +174,14 @@ function LineRow({ d, line, first, last, recipeId, onChange, onMove, onRemove }:
   const elsewhere = fam ? d.recipes.filter((r) => r.id !== recipeId).flatMap((r) => r.ingredients ?? []).filter((l) => ingredientOf(d, l.ingredientId)?.id === ing?.id && l.qty != null).map((l) => ({ fam: familyOf(l.unit), unit: l.unit })) : [];
   const other = elsewhere.find((e) => e.fam !== fam);
   return (
-    <div className={`h-card line${unread ? " line--warn" : other ? " line--hint" : ""}`}>
-      <div className="line__main">
-        <div className="line__move"><button className="h-icon-btn" aria-label="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button><button className="h-icon-btn" aria-label="Move down" disabled={last} onClick={() => onMove(1)}>↓</button></div>
-        <button className="line__text" onClick={() => setEditing(!editing)} aria-expanded={editing}>
-          <span><strong>{line.toTaste ? "" : amount(line.qty, line.unit)}</strong> {ing?.name ?? "?"}{line.note && <span className="muted">, {line.note}</span>}</span>
-          <span className="chips">{line.toTaste && <span className="h-badge badge--neutral">To taste</span>}{line.optional && <span className="h-badge badge--neutral">Optional</span>}<span className="muted" style={{ fontSize: 11 }}>{SECTIONS.find(([k]) => k === ing?.section)?.[1]}</span></span>
-        </button>
-        <button className="h-icon-btn danger-text" aria-label={`Remove ${ing?.name}`} onClick={onRemove}>×</button>
-      </div>
+    <div className={`line${unread ? " line--warn" : other ? " line--hint" : ""}${editing ? " line--open" : ""}`}>
+      {/* One compact row; moving and removing live in the panel it opens (they were 12px glyphs on every row). */}
+      <button className="line__text" onClick={() => setEditing(!editing)} aria-expanded={editing}>
+        <span className="line__amount">{line.toTaste ? "" : amount(line.qty, line.unit)}</span>
+        <span className="line__name">{ing?.name ?? "?"}{line.note && <span className="muted">, {line.note}</span>}
+          <span className="line__meta">{[line.toTaste && "To taste", line.optional && "Optional", SECTIONS.find(([k]) => k === ing?.section)?.[1]].filter(Boolean).join(" · ")}</span></span>
+        <span className="line__chev" aria-hidden="true">{Icon.chevron}</span>
+      </button>
       {unread && <div className="line__note">Couldn’t read an amount. Tap to fix, or mark To taste.</div>}
       {other && !unread && <div className="line__note">{ing?.name} is in {other.unit} on your other recipes, so they won’t merge on lists. Consider using {other.unit}.</div>}
       {editing && (
@@ -192,6 +193,11 @@ function LineRow({ d, line, first, last, recipeId, onChange, onMove, onRemove }:
           <div className="chips">
             <button className="h-chip" aria-pressed={!!line.optional} onClick={() => onChange({ optional: !line.optional || undefined })}>Optional</button>
             <button className="h-chip" aria-pressed={!!line.toTaste} onClick={() => onChange({ toTaste: !line.toTaste || undefined, qty: undefined })}>To taste</button>
+          </div>
+          <div className="line__actions">
+            <Button variant="secondary" disabled={first} onClick={() => onMove(-1)}>Move up</Button>
+            <Button variant="secondary" disabled={last} onClick={() => onMove(1)}>Move down</Button>
+            <Button variant="text" className="danger-text" onClick={onRemove}>Remove</Button>
           </div>
         </div>
       )}

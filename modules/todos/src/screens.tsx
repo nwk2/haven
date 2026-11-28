@@ -136,7 +136,7 @@ export function Home() {
             </div>
           </div>
         )}
-        <div style={{ marginTop: 10 }}><Button variant="secondary" block onClick={() => setNewList(true)}>+ New list</Button></div>
+        <button type="button" className="h-link td-newlist" onClick={() => setNewList(true)}>+ New list</button>
       </section>
     </main>
     {open && <ItemSheet item={open} list={listOf(open.list_id)} onClose={() => setOpen(null)} setUndo={setUndo} />}
